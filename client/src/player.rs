@@ -3,7 +3,7 @@ use crate::game::Assets;
 
 #[derive(Copy, Clone)]
 pub struct PlayerTween {
-    position: Vec2,
+    position: IVec2,
     start: f64,
     end: f64,
 }
@@ -11,7 +11,7 @@ pub struct PlayerTween {
 pub struct Player {
     pub id: ClientId,
     pub name: String,
-    pub position: Vec2,
+    pub position: IVec2,
     pub tween: Option<PlayerTween>,
     pub sprite: u32,
     pub direction: Direction,
@@ -29,14 +29,14 @@ impl Player {
         }
     }
     pub fn tween_position(&self, time: f64) -> Vec2 {
-        self.tween.as_ref().map_or(self.position, |tween| {
+        self.tween.as_ref().map_or_else(|| self.position.as_f32(), |tween| {
             let t = (time - tween.start) / (tween.end - tween.start);
-            let diff = self.position - tween.position;
+            let diff = (self.position - tween.position).as_f32();
 
-            tween.position + diff * t as f32
+            tween.position.as_f32() + diff * t as f32
         })
     }
-    pub fn set_tween(&mut self, position: Vec2, start: f64, duration: f64) {
+    pub fn set_tween(&mut self, position: IVec2, start: f64, duration: f64) {
         self.tween = Some(PlayerTween {
             position,
             start,

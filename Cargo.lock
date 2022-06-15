@@ -157,6 +157,7 @@ dependencies = [
  "common",
  "egui",
  "egui-macroquad",
+ "itertools",
  "macroquad",
  "message-io",
  "serde",
@@ -183,7 +184,7 @@ name = "common"
 version = "0.1.0"
 dependencies = [
  "bincode",
- "glam 0.20.5",
+ "glam",
  "message-io",
  "mint",
  "serde",
@@ -308,6 +309,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "either"
+version = "1.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e78d4f1cc4ae33bbfc157ed5d5a5ef3bc29227303d595861deb238fcec4e9457"
+
+[[package]]
 name = "emath"
 version = "0.18.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -359,12 +366,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "333928d5eb103c5d4050533cec0384302db6be8ef7d3cebd30ec6a35350353da"
 
 [[package]]
-name = "glam"
-version = "0.20.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f43e957e744be03f5801a55472f593d43fabdebf25a4585db250f04d86b1675f"
-
-[[package]]
 name = "hashbrown"
 version = "0.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -405,6 +406,15 @@ name = "integer-encoding"
 version = "3.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0e85a1509a128c855368e135cffcde7eac17d8e1083f41e2b98c58bc1a5074be"
+
+[[package]]
+name = "itertools"
+version = "0.10.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a9a9d19fa1e79b6215ff29b9d6880b706147f16e9b1dbb1e4e5947b5b02bc5e3"
+dependencies = [
+ "either",
+]
 
 [[package]]
 name = "js-sys"
@@ -481,7 +491,7 @@ checksum = "6b723ade71357d07177c769af9ae42beff73c854e827ee5a4ec765dd2beb95e1"
 dependencies = [
  "bumpalo",
  "fontdue",
- "glam 0.14.0",
+ "glam",
  "image",
  "macroquad_macro",
  "miniquad",
@@ -976,7 +986,7 @@ dependencies = [
  "bimap",
  "bincode",
  "common",
- "glam 0.20.5",
+ "glam",
  "message-io",
  "serde",
 ]

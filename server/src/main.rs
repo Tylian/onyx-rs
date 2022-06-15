@@ -1,7 +1,7 @@
 use std::{sync::RwLock, collections::HashMap};
 
 use common::network::*;
-use glam::Vec2;
+use glam::*;
 
 use crate::networking::{Networking, NetworkSignal, Message};
 
@@ -11,7 +11,7 @@ mod networking;
 struct ClientData {
     name: String,
     sprite: u32,
-    position: Vec2
+    position: IVec2
 }
 
 impl From<ClientData> for PlayerData {
@@ -65,7 +65,7 @@ impl GameServer {
                 let client_data = ClientData {
                     name,
                     sprite,
-                    position: glam::vec2(10.0, 7.0),
+                    position: glam::ivec2(10, 7),
                 };
 
                 self.queue(Message::send_to(client_id, ServerMessage::Hello(client_id)));
@@ -92,10 +92,10 @@ impl GameServer {
 
                 self.data.insert(client_id, Some(client_data));
             },
-            ClientMessage::Move(target, direction) => {
+            ClientMessage::Move(direction) => {
                 if let Some(data) = self.data.get_mut(&client_id).unwrap().as_mut() {
-                    let message = ServerMessage::PlayerMoved(client_id, data.position.into(), target, direction);
-                    data.position = target.into();
+                    data.position += direction.offset().into();
+                    let message = ServerMessage::PlayerMoved(client_id, data.position.into(), direction);
                     self.queue(Message::send_to_all_but(client_id, message));
                 }
             },
@@ -106,8 +106,8 @@ impl GameServer {
                     self.queue(Message::send_to_all(packet));
                 }
             },
-            ClientMessage::ChangeTile(pos, index) => {
-                let packet = ServerMessage::ChangeTile(pos, index);
+            ClientMessage::ChangeTile(pos, layer, uv, is_autotile) => {
+                let packet = ServerMessage::ChangeTile(pos, layer, uv, is_autotile);
                 self.queue(Message::send_to_all(packet));
             },
         }
