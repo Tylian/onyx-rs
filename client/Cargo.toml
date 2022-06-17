@@ -18,3 +18,4 @@ macroquad = "0.3.16"
 message-io = { version = "0.14.5", default_features = false, features = ["tcp"] }
 mint = { version = "0.5.9", features = ["serde"] }
 serde = "1.0.137"
+thiserror = "1.0.31"

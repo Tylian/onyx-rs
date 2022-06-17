@@ -1,7 +1,11 @@
+use std::collections::HashMap;
+
 use common::network::{MapLayer, RemoteMap, RemoteTile, TileAttribute as RemoteAttribute};
 use macroquad::prelude::*;
+use thiserror::Error;
 
 use crate::assets::Assets;
+use crate::ensure;
 
 const OFFSETS: &[(i32, i32)] = &[
     (0, -1), (1, 0), (0, 1), (-1, 0),
@@ -196,23 +200,29 @@ impl Default for TileAttribute {
 pub struct Map {
     width: u32,
     height: u32,
-    ground: Vec<Tile>,
-    mask: Vec<Tile>,
-    fringe: Vec<Tile>,
-    attribute: Vec<TileAttribute>
+    layers: HashMap<MapLayer, Vec<Tile>>,
+    attributes: Vec<TileAttribute>
 }
 
 impl Map {
     pub fn new(width: u32, height: u32) -> Self {
         let size = (width * height).try_into().unwrap();
+        let mut layers = HashMap::new();
+
+        for layer in MapLayer::iter() {
+            layers.insert(layer, vec![Default::default(); size]);
+        }
+
         Self {
             width,
             height,
-            ground: vec![Default::default(); size],
-            mask: vec![Default::default(); size],
-            fringe: vec![Default::default(); size],
-            attribute: vec![Default::default(); size],
+            layers,
+            attributes: vec![Default::default(); size],
         }
+    }
+
+    pub fn valid(&self, pos: IVec2) -> bool {
+        pos.x >= 0 && pos.x < self.width as i32 && pos.y >= 0 && pos.y < self.height as i32
     }
 
     fn index(&self, position: IVec2) -> Option<usize> {
@@ -224,27 +234,22 @@ impl Map {
     }
 
     pub fn tile(&self, layer: MapLayer, position: IVec2) -> Option<&Tile> {
-        self.index(position).map(|index| match layer {
-            MapLayer::Ground => &self.ground[index],
-            MapLayer::Mask => &self.mask[index],
-            MapLayer::Fringe => &self.fringe[index],
-        })
+        self.index(position).map(|index| self.layers[&layer].get(index).unwrap())
     }
 
     pub fn tile_mut(&mut self, layer: MapLayer, position: IVec2) -> Option<&mut Tile> {
-        self.index(position).map(|index| match layer {
-            MapLayer::Ground => &mut self.ground[index],
-            MapLayer::Mask => &mut self.mask[index],
-            MapLayer::Fringe => &mut self.fringe[index],
-        })
+        self.index(position).map(|index| self.layers.get_mut(&layer).unwrap().get_mut(index).unwrap())
+    }
+
+    pub fn set_tile(&mut self, layer: MapLayer, position: IVec2, tile: Tile) {
+        self.index(position).map(|index| {
+            self.layers.get_mut(&layer).unwrap()[index] = tile;
+            //*self.layers.get_mut(&layer).unwrap().get_mut(index).unwrap() = tile;
+        });
     }
 
     pub fn tiles(&self, layer: MapLayer) -> &[Tile] {
-        match layer {
-            MapLayer::Ground => &self.ground,
-            MapLayer::Mask => &self.mask,
-            MapLayer::Fringe => &self.fringe,
-        }
+        self.layers.get(&layer).unwrap()
     }
 
     pub fn draw(&self, layer: MapLayer, assets: &Assets) {
@@ -253,10 +258,6 @@ impl Map {
             let screen_position = position.as_f32() * 48.0;
             self.tile(layer, position).map(|tile| tile.draw(screen_position, assets));
         }
-    }
-
-    pub fn valid(&self, pos: IVec2) -> bool {
-        pos.x >= 0 && pos.x < self.width as i32 && pos.y >= 0 && pos.y < self.height as i32
     }
 
     pub fn update_autotiles(&mut self) {
@@ -306,26 +307,38 @@ impl Map {
     }
 }
 
-impl From<RemoteMap> for Map {
-    fn from(remote: RemoteMap) -> Self {
-        let size = (remote.width * remote.height) as usize;
-        assert_eq!(remote.ground.len(), size);
-        assert_eq!(remote.mask.len(), size);
-        assert_eq!(remote.fringe.len(), size);
-        assert_eq!(remote.attribute.len(), size);
+#[derive(Debug, Error)]
+pub enum MapError {
+    #[error("size is incorrect")]
+    IncorrectSize,
+    #[error("the number of layers is incorrect")]
+    IncorrectLayers,
+}
+
+impl TryFrom<RemoteMap> for Map {
+    type Error = MapError;
+
+    fn try_from(value: RemoteMap) -> Result<Self, Self::Error> {
+        let size = (value.width * value.height) as usize;
+        ensure!(value.attributes.len() == size, MapError::IncorrectSize);
+        ensure!(value.layers.len() == MapLayer::count(), MapError::IncorrectLayers);
+
+        let mut layers = HashMap::new();
+        for (layer, contents) in value.layers {
+            ensure!(contents.len() == size, MapError::IncorrectSize);
+            layers.insert(layer, contents.into_iter().map(|t| t.into()).collect());
+        }
 
         let mut map = Self {
-            width: remote.width,
-            height: remote.height,
-            ground: remote.ground.into_iter().map(|t| t.into()).collect(),
-            mask: remote.mask.into_iter().map(|t| t.into()).collect(),
-            fringe: remote.fringe.into_iter().map(|t| t.into()).collect(),
-            attribute: remote.attribute.into_iter().map(|t| t.into()).collect(),
+            width: value.width,
+            height: value.height,
+            layers, 
+            attributes: value.attributes.into_iter().map(|t| t.into()).collect(),
         };
 
         map.update_autotiles();
 
-        map
+        Ok(map)
     }
 }
 
@@ -348,24 +361,25 @@ impl From<RemoteAttribute> for TileAttribute {
     }
 }
 
+// Note: It is considered an unrecoverable error to have a map that has an invalid size
 impl From<Map> for RemoteMap {
-    fn from(map: Map) -> Self {
-        let size = (map.width * map.height) as usize;
-        assert_eq!(map.ground.len(), size);
-        assert_eq!(map.mask.len(), size);
-        assert_eq!(map.fringe.len(), size);
-        assert_eq!(map.attribute.len(), size);
+    fn from(value: Map) -> Self {
+        let size = (value.width * value.height) as usize;
+        assert_eq!(value.attributes.len(), size);
+        assert_eq!(value.layers.len(), MapLayer::count());
 
-        let remote = Self {
-            width: map.width,
-            height: map.height,
-            ground: map.ground.into_iter().map(|t| t.into()).collect(),
-            mask: map.mask.into_iter().map(|t| t.into()).collect(),
-            fringe: map.fringe.into_iter().map(|t| t.into()).collect(),
-            attribute: map.attribute.into_iter().map(|t| t.into()).collect(),
-        };
+        let mut layers = HashMap::new();
+        for (layer, contents) in value.layers {
+            assert_eq!(contents.len(), size);
+            layers.insert(layer, contents.into_iter().map(|t| t.into()).collect());
+        }
 
-        remote
+        Self {
+            width: value.width,
+            height: value.height,
+            layers, 
+            attributes: value.attributes.into_iter().map(|t| t.into()).collect(),
+        }
     }
 }
 

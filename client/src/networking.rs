@@ -129,6 +129,7 @@ impl NetworkClient {
         self.state.try_recv()
     }
 
+    #[allow(dead_code)]
     pub fn disconnect(&self) {
         self.state.disconnect.store(true, Ordering::Relaxed);
     }

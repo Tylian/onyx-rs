@@ -73,6 +73,7 @@ impl GameState {
         }
     }
 
+    #[allow(dead_code)]
     fn player(&self, id: ClientId) -> Option<&Player> {
         self.players.iter().find(|p| p.id == id)
     }
@@ -169,14 +170,17 @@ impl GameState {
                     }
                 },
                 ServerMessage::ChangeMap(remote) => {
-                    self.map = remote.into();
+                    match remote.try_into() {
+                        Ok(map) => self.map = map,
+                        Err(err) => println!("Error converting remote map: {:?}", err),
+                    };
                 }
             }
         }
     }
 
     fn update_ui(&mut self, ctx: &egui::Context) {
-        use egui::{*, style::Margin};
+        use egui::*;
         use egui_extras::{StripBuilder, Size};
 
         let chat_window = Window::new("💬 Chat")

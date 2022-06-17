@@ -4,11 +4,12 @@ use macroquad::window::Conf;
 
 use crate::{game::game_screen, title::title_screen, assets::Assets};
 
+mod assets;
+mod game;
+mod macros;
+mod map;
 mod networking;
 mod title;
-mod game;
-mod map;
-mod assets;
 
 pub type GameResult<T> = Result<T, Box<dyn std::error::Error>>;
 

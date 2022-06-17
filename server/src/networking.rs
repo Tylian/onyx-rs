@@ -160,6 +160,7 @@ impl Networking {
         rx.try_recv().ok()
     }
     
+    #[allow(dead_code)]
     pub fn disconnect(&self) {
         let (tx, _rx) = &self.game;
         tx.send(GameSignal::Disconnect).unwrap();

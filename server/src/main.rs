@@ -36,21 +36,12 @@ impl GameServer {
         let mut network = Networking::new();
         network.listen("0.0.0.0:3042");
 
-        let size = 20 * 15;
-
         let path = PathBuf::from("./map.bin");
         let map = if path.exists() {
             let bytes = fs::read(path)?;
             bincode::deserialize(&bytes)?
         } else {
-            RemoteMap {
-                width: 20,
-                height: 15,
-                ground: vec![Default::default(); size],
-                mask: vec![Default::default(); size],
-                fringe: vec![Default::default(); size],
-                attribute: vec![Default::default(); size],
-            }
+            RemoteMap::new(20, 15)
         };
 
         Ok(Self {

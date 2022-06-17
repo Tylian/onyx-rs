@@ -1,6 +1,9 @@
-use serde::{Serialize, Deserialize};
+use std::collections::HashMap;
 
-use crate::{Point2, Vector2, point2, vector2};
+use serde::{Serialize, Deserialize};
+use enum_iterator::Sequence;
+
+use crate::{Point2, Vector2, vector2};
 
 #[derive(Serialize, Deserialize, PartialEq, Debug, Eq, Hash, Clone, Copy)]
 #[serde(transparent)]
@@ -79,7 +82,7 @@ pub enum ChatMessage {
     Say(String)
 }
 
-#[derive(Copy, Clone, Serialize, Deserialize, PartialEq, Debug)]
+#[derive(Copy, Clone, Serialize, Deserialize, PartialEq, Debug, Eq, Hash, Sequence)]
 pub enum MapLayer {
     Ground,
     Mask,
@@ -88,7 +91,11 @@ pub enum MapLayer {
 
 impl MapLayer {
     pub fn iter() -> impl Iterator<Item = MapLayer> {
-        vec![MapLayer::Ground, MapLayer::Mask, MapLayer::Fringe].into_iter()
+        enum_iterator::all::<Self>()
+    }
+
+    pub fn count() -> usize {
+        enum_iterator::cardinality::<Self>()
     }
 }
 
@@ -96,10 +103,26 @@ impl MapLayer {
 pub struct RemoteMap {
     pub width: u32,
     pub height: u32,
-    pub ground: Vec<RemoteTile>,
-    pub mask: Vec<RemoteTile>,
-    pub fringe: Vec<RemoteTile>,
-    pub attribute: Vec<TileAttribute>
+    pub layers: HashMap<MapLayer, Vec<RemoteTile>>,
+    pub attributes: Vec<TileAttribute>
+}
+
+impl RemoteMap {
+    pub fn new(width: u32, height: u32) -> Self {
+        let size = (width * height).try_into().unwrap();
+        let mut layers = HashMap::new();
+
+        for layer in MapLayer::iter() {
+            layers.insert(layer, vec![Default::default(); size]);
+        }
+
+        Self {
+            width,
+            height,
+            layers,
+            attributes: vec![Default::default(); size],
+        }
+    }
 }
 
 #[derive(Copy, Clone, Serialize, Deserialize, PartialEq, Debug)]
