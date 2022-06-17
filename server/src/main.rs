@@ -162,6 +162,7 @@ impl GameServer {
             
             // finalizing
             self.send_all();
+            std::thread::yield_now();
         }
     }
 
