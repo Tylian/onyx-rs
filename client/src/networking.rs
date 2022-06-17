@@ -2,10 +2,9 @@ use std::thread;
 use std::collections::VecDeque;
 use std::sync::{atomic::{AtomicBool, Ordering}, Arc, RwLock};
 
+use common::network::{ServerMessage, ClientMessage};
 use message_io::network::{ToRemoteAddr, Transport};
 use message_io::node::{self, StoredNetEvent};
-
-use crate::prelude::*;
 
 #[derive(Copy, Clone, PartialEq)]
 pub enum NetworkStatus {
@@ -15,7 +14,7 @@ pub enum NetworkStatus {
     Disconnected,
 }
 
-pub struct Networking {
+pub struct NetworkClient {
     state: Arc<State>,
 }
 
@@ -61,7 +60,7 @@ impl State {
     }
 }
 
-impl Networking {
+impl NetworkClient {
     pub fn new() -> Self {
         Self {
             state: Arc::new(State::new()),

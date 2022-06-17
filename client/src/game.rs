@@ -1,42 +1,75 @@
+use common::network::{ClientId, ChatMessage, ServerMessage, ClientMessage, Direction, MapLayer};
+use macroquad::prelude::*;
 
-use std::{collections::HashMap, hash::Hash};
+use crate::assets::Assets;
+use crate::networking::{NetworkClient, NetworkStatus};
+use crate::map::{Map, Tile};
+use self::player::Player;
 
-use common::network::{ClientId, ChatChannel, ServerMessage, ClientMessage, Direction};
-
-use crate::{prelude::*, networking::{Networking, NetworkStatus}, player::Player, map::{Map, Tile}};
+mod player;
 
 const MOVEMENT_SPEED: f64 = 1.0 / 5.0;
 const TILE_WIDTH: f32 = 48.0;
 const TILE_HEIGHT: f32 = 48.0;
 
-pub struct GameState {
+#[inline(always)]
+fn ivec2_to_egui(ivec: IVec2) -> egui::Vec2 {
+    egui::Vec2::new(ivec.x as f32, ivec.y as f32)
+}
+
+#[inline(always)]
+fn egui_to_ivec2(pos: egui::Pos2) -> IVec2 {
+    ivec2(pos.x as i32, pos.y as i32)
+}
+
+struct UiState {
     chat_message: String,
-    chat_messages: Vec<(ChatChannel, String)>,
-    movement_lock: f64,
-    my_id: Option<ClientId>,
-    players: Vec<Player>,
-    network: Networking,
-    map: Map,
+    chat_messages: Vec<ChatMessage>,
     layer: MapLayer,
     coords: IVec2,
     is_autotile: bool,
-    last_tile: Option<IVec2>
+    last_tile: Option<(MouseButton, IVec2)>,
+    map_editor: bool,
+    hovering_ui: bool
 }
 
-impl GameState {
-    fn with_network(network: Networking) -> Self {
+impl Default for UiState {
+    fn default() -> Self {
         Self {
             chat_message: Default::default(),
             chat_messages: Default::default(),
-            movement_lock: Default::default(),
+            layer: MapLayer::Ground,
+            coords: Default::default(),
+            is_autotile: Default::default(),
+            last_tile: Default::default(),
+            map_editor: Default::default(),
+            hovering_ui: Default::default(),
+        }
+    }
+}
+
+struct GameState {
+    assets: Assets,
+    network: NetworkClient,
+    my_id: Option<ClientId>,
+    players: Vec<Player>,
+    map: Map,
+    ui_state: UiState,
+    movement_lock: f64,
+    time: f64,
+}
+
+impl GameState {
+    fn new(network: NetworkClient, assets: Assets) -> Self {
+        Self {
+            assets,
+            network,
             my_id: Default::default(),
             players: Default::default(),
-            network,
             map: Map::new(20, 15),
-            layer: MapLayer::Ground,
-            coords: ivec2(0, 0),
-            is_autotile: false,
-            last_tile: None
+            ui_state: Default::default(),
+            movement_lock: Default::default(),
+            time: get_time(),
         }
     }
 
@@ -60,12 +93,40 @@ impl GameState {
         self.my_id.and_then(|my_id| self.players.iter_mut().find(|p| p.id == my_id))
     }
 
+    fn process_message(&mut self, text: String) {
+        if text.starts_with("/mapeditor") {
+            self.ui_state.map_editor = true;
+        } else {
+            self.network.send(ClientMessage::Message(text));
+        }
+    }
 
-    fn update_network(&mut self, time: f64) {
+    fn update(&mut self) {
+        self.update_time();
+
+        self.update_network();
+        egui_macroquad::ui(|ctx| {
+            self.update_ui(ctx);
+            self.ui_state.hovering_ui = ctx.wants_pointer_input();
+        });
+        
+        for player in self.players.iter_mut() {
+            player.update(self.time);
+        }
+
+        self.update_input();
+    }
+
+    fn update_time(&mut self) {
+        self.time = get_time();
+    }
+
+    fn update_network(&mut self) {
         if self.network.status() != NetworkStatus::Connected {
             return;
         }
 
+        let time = self.time;
         while let Some(message) = self.network.try_recv() {
             println!("{:?}", message);
             match message {
@@ -84,19 +145,19 @@ impl GameState {
                         self.sort_players();
                     }
                 }
-                ServerMessage::PlayerMoved(client_id, to, direction) => {
-                    let from = IVec2::from(to) + direction.reverse().offset().into();
+                ServerMessage::PlayerMoved { client_id, position, direction } => {
+                    let from = IVec2::from(position) + direction.reverse().offset().into();
                     let mut player = self.player_mut(client_id).unwrap();
-                    player.position = to.into();
+                    player.position = position.into();
                     player.direction = direction;
 
                     player.set_tween(from, time, MOVEMENT_SPEED);
                     self.sort_players();
                 }
-                ServerMessage::Message(channel, message) => {
-                    self.chat_messages.push((channel, message))
+                ServerMessage::Message(message) => {
+                    self.ui_state.chat_messages.push(message);
                 },
-                ServerMessage::ChangeTile(position, layer, uv, is_autotile) => {
+                ServerMessage::ChangeTile { position, layer, tile: uv, is_autotile }  => {
                     let tile = self.map.tile_mut(layer, position.into());
                     if let Some(tile) = tile {
                         *tile = match uv {
@@ -107,11 +168,16 @@ impl GameState {
                         self.map.update_autotiles();
                     }
                 },
+                ServerMessage::ChangeMap(remote) => {
+                    self.map = remote.into();
+                }
             }
         }
     }
-    fn update_ui(&mut self, ctx: &egui::Context, assets: &Assets) {
+
+    fn update_ui(&mut self, ctx: &egui::Context) {
         use egui::{*, style::Margin};
+        use egui_extras::{StripBuilder, Size};
 
         let chat_window = Window::new("💬 Chat")
             .resizable(true)
@@ -119,71 +185,122 @@ impl GameState {
             .default_size([367.0, 147.0])
             .min_height(125.0);
 
+        let mut text: Option<Response> = None;
+        let mut button: Option<Response> = None;
+
         // 7 522 386 708
         chat_window.show(&ctx, |ui| {
-            TopBottomPanel::bottom("chat_bottom")
-                .frame(Frame::none().inner_margin(Margin::symmetric(8.0, 2.0)))
-                .show_inside(ui, |ui| {
-                    ui.separator();
-                    ui.with_layout(Layout::right_to_left(), |ui| {
-                        let button = ui.button("Send");
-                        let text = ui.add_sized(
-                            ui.available_size(),
-                            TextEdit::singleline(&mut self.chat_message),
-                        );
-
-                        if (text.lost_focus() && ui.input().key_pressed(Key::Enter))
-                            || button.clicked()
-                        {
-                            let text = std::mem::take(&mut self.chat_message);
-                            self.network.send(ClientMessage::Message(text));
-                        }
+            let bottom_height = ui.spacing().interact_size.y;
+            StripBuilder::new(ui)
+                .size(Size::remainder().at_least(100.))
+                .size(Size::exact(6.))
+                .size(Size::exact(bottom_height))
+                .vertical(|mut strip| {
+                    strip.cell(|ui| {
+                        ScrollArea::vertical()
+                            .auto_shrink([false; 2])
+                            .stick_to_bottom()
+                            .show(ui, |ui| {
+                                for message in &self.ui_state.chat_messages {
+                                    match message {
+                                        ChatMessage::Server(text) => {
+                                            ui.colored_label(Color32::YELLOW, format!("[Server] {}\n", text));
+                                        },
+                                        ChatMessage::Say(text) => {
+                                            ui.colored_label(Color32::WHITE, format!("[Say] {}\n", text));
+                                        }
+                                    };
+                                }
+                            });
+                    });
+                    strip.cell(|ui| { ui.separator(); });
+                    strip.strip(|builder| {
+                        builder
+                            .size(Size::exact(40.))
+                            .size(Size::remainder())
+                            .size(Size::exact(40.))
+                            .horizontal(|mut strip| {
+                                strip.cell(|ui| {
+                                    ui.colored_label(Color32::WHITE, "Say:");
+                                });
+                                strip.cell(|ui| {
+                                    text = Some(ui.text_edit_singleline(&mut self.ui_state.chat_message));
+                                });
+                                strip.cell(|ui| {
+                                    button = Some(ui.button("Send"));
+                                });
+                            });
                     });
                 });
 
-            CentralPanel::default().show_inside(ui, |ui| {
-                ScrollArea::vertical()
-                    .auto_shrink([false; 2])
-                    .stick_to_bottom()
-                    .show(ui, |ui| {
-                        for (channel, message) in &self.chat_messages {
-                            let color = match channel {
-                                ChatChannel::Server => Color32::YELLOW,
-                                ChatChannel::Say => Color32::WHITE,
-                            };
-
-                            let prefix = match channel {
-                                ChatChannel::Server => "[Server] ",
-                                ChatChannel::Say => "",
-                            };
-                            ui.colored_label(color, format!("{}{}", prefix, message));
-                        }
-                    });
-            });
+            if let Some((text, button)) = text.zip(button) {
+                if (text.lost_focus() && ui.input().key_pressed(Key::Enter)) || button.clicked() {
+                    let message = std::mem::take(&mut self.ui_state.chat_message);
+                    self.process_message(message);
+                    text.request_focus();
+                }
+            }
         });
 
         let map_editor = Window::new("📝 Map Editor");
-
-        map_editor.show(ctx, |ui| {
-            ui.horizontal(|ui| {
-                ui.radio_value(&mut self.layer, MapLayer::Ground, "Ground");
-                ui.radio_value(&mut self.layer, MapLayer::Mask, "Mask");
-                ui.radio_value(&mut self.layer, MapLayer::Fringe, "Fringe");
+        if self.ui_state.map_editor {
+            map_editor.show(ctx, |ui| {
+                menu::bar(ui, |ui| {
+                    ui.menu_button("File", |ui| {
+                        if ui.button("Save").clicked() {
+                            let data = self.map.clone().into();
+                            self.network.send(ClientMessage::SaveMap(data));
+                            self.ui_state.map_editor = false;
+                        }
+                        if ui.button("Exit").clicked() {
+                            self.network.send(ClientMessage::RequestMap);
+                            self.ui_state.map_editor = false;
+                        }
+                    });
+                    ui.menu_button("Layer", |ui| {
+                        ui.radio_value(&mut self.ui_state.layer, MapLayer::Ground, "Ground");
+                        ui.radio_value(&mut self.ui_state.layer, MapLayer::Mask, "Mask");
+                        ui.radio_value(&mut self.ui_state.layer, MapLayer::Fringe, "Fringe");
+                        ui.separator();
+                        ui.checkbox(&mut self.ui_state.is_autotile, "Is autotile?");
+                    });
+                });
+                
+                if let Some(texture) = self.assets.egui.tileset.as_ref() {
+                    // let p: Vec2 = vec2(self.coords.x as f32 * TILE_WIDTH, self.coords.y as f32 * TILE_HEIGHT) / texture.size_vec2();
+                    // let size = vec2(TILE_WIDTH, TILE_HEIGHT) / texture.size_vec2();
+                    // let tile = Image::new(texture, (TILE_WIDTH, TILE_HEIGHT))
+                    //     .uv(Rect::from_min_size(p.to_pos2(), size));
+                    // ui.add(tile);
+    
+                    let scroll_area = ScrollArea::both();
+                        // .auto_shrink([false, false])
+                        // .max_height(8. * 48.);
+                    scroll_area.show_viewport(ui, |ui, viewport| {
+                        let image = Image::new(texture, texture.size_vec2())
+                            .sense(Sense::click());
+    
+                        let clip_rect = ui.clip_rect();
+    
+                        let response = ui.add(image);
+                        if response.clicked() {
+                            let pos = response.interact_pointer_pos().expect("Pointer position shouldn't be None");
+                            let offset = viewport.left_top() + (pos - clip_rect.left_top()); // weird order just to make it typecheck lol
+                            self.ui_state.coords = egui_to_ivec2(offset) / 48;
+                        }
+    
+                        let pos = (clip_rect.left_top() - viewport.left_top()) + ivec2_to_egui(self.ui_state.coords * 48);
+                        let rect = Rect::from_min_size(pos.to_pos2(), Vec2::new(48., 48.));
+    
+                        let painter = ui.painter();
+                        painter.rect_stroke(rect, 0., ui.visuals().window_stroke());
+    
+                        response
+                    });
+                }
+                
             });
-            ui.checkbox(&mut self.is_autotile, "Is autotile?");
-            ui.horizontal(|ui| {
-                ui.label("Texture: ");
-                ui.add(DragValue::new(&mut self.coords.x).speed(0.1).clamp_range(0..=16).prefix("x: "));
-                ui.add(DragValue::new(&mut self.coords.y).speed(0.1).clamp_range(0..=12).prefix("y: "));
-            });
-            if let Some(texture) = assets.egui.tileset.as_ref() {
-                let p: Vec2 = vec2(self.coords.x as f32 * TILE_WIDTH, self.coords.y as f32 * TILE_HEIGHT) / texture.size_vec2();
-                let size = vec2(TILE_WIDTH, TILE_HEIGHT) / texture.size_vec2();
-                let tile = Image::new(texture, (TILE_WIDTH, TILE_HEIGHT))
-                    .uv(Rect::from_min_size(p.to_pos2(), size));
-                ui.add(tile);
-            }
-        });
+        }
 
         /*egui::Window::new("📝 Memory")
         .resizable(false)
@@ -191,69 +308,10 @@ impl GameState {
             egui_ctx.memory_ui(ui);
         });*/
     }
-}
 
-pub struct Assets {
-    pub tileset: Texture2D,
-    pub sprites: Texture2D,
-    pub font: Font,
-    pub egui: EguiAssets
-}
-
-#[derive(Default)]
-pub struct EguiAssets {
-    pub tileset: Option<egui::TextureHandle>,
-    pub sprites: Option<egui::TextureHandle>,
-}
-
-impl Assets {
-    async fn load() -> GameResult<Self> {
-        Ok(Self {
-            tileset: load_texture("assets/Outside_A2.png").await?,
-            sprites: load_texture("assets/Actor1.png").await?,
-            font: load_ttf_font("assets/LiberationMono-Regular.ttf").await?,
-            egui: Default::default()
-        })
-    }
-
-    fn load_egui(&mut self, ctx: &egui::Context) {
-        self.egui.sprites.get_or_insert_with(|| Self::load_egui_texture(ctx, "sprites", self.sprites));
-        self.egui.tileset.get_or_insert_with(|| Self::load_egui_texture(ctx, "tileset", self.tileset));
-    }
-
-    fn load_egui_texture(ctx: &egui::Context, name: impl ToString, texture: Texture2D) -> egui::TextureHandle {
-        let image = texture.get_texture_data();
-        let size = [image.width(), image.height()];
-        let egui_image = egui::ColorImage::from_rgba_unmultiplied(size, &image.bytes);
-        ctx.load_texture(name.to_string(), egui_image)
-    }
-}
-
-pub async fn game_screen(network: Networking) {
-    let mut assets = Assets::load().await
-        .expect("Could not load assets");
-
-    let mut state = GameState::with_network(network);
-    let mut hovering_egui = false;
-
-    egui_macroquad::cfg(|ctx| assets.load_egui(ctx));
-
-    loop {
-        let time = get_time();
-
-        // update
-        state.update_network(time);
-        egui_macroquad::ui(|ctx| {
-            state.update_ui(ctx, &assets);
-            hovering_egui = ctx.wants_pointer_input();
-        });
-        
-        for player in state.players.iter_mut() {
-            player.update(time);
-        }
-
-        if state.my_id.is_some() {
-            if state.movement_lock <= time {
+    fn update_input(&mut self) {
+        if self.my_id.is_some() {
+            if self.movement_lock <= self.time {
                 let movement = if is_key_down(KeyCode::Up) {
                     Some(Direction::North)
                 } else if is_key_down(KeyCode::Down) {
@@ -267,23 +325,24 @@ pub async fn game_screen(network: Networking) {
                 };
 
                 if let Some(direction) = movement {
-                    let new_position = state.me().unwrap().position + direction.offset().into();
-                    if state.map.valid(new_position) {
-                        let me = state.me_mut().unwrap();
+                    let new_position = self.me().unwrap().position + direction.offset().into();
+                    if self.map.valid(new_position) {
+                        let time = self.time;
+                        let me = self.me_mut().unwrap();
                         let from = me.position;
                         me.position = new_position;
                         me.direction = direction;
 
                         me.set_tween(from, time, MOVEMENT_SPEED);
 
-                        state.network.send(ClientMessage::Move(direction));
-                        state.movement_lock = time + MOVEMENT_SPEED;
+                        self.network.send(ClientMessage::Move(direction));
+                        self.movement_lock = self.time + MOVEMENT_SPEED;
                     }
                 }
             }
         }
         
-        let mouse_button = if hovering_egui {
+        let mouse_button = if self.ui_state.hovering_ui {
             None
         } else {
             if is_mouse_button_down(MouseButton::Left) {
@@ -296,48 +355,47 @@ pub async fn game_screen(network: Networking) {
         };
 
         if let Some(mouse_button) = mouse_button {
-            let (mx, my) = mouse_position();
-            let tile_pos = ivec2(mx as i32, my as i32) / 48;
+            let mouse_position = Vec2::from(mouse_position()).as_i32();
+            let tile_position = mouse_position / 48;
 
-            if state.last_tile != Some(tile_pos) {
-                let tile = state.map.tile_mut(state.layer, tile_pos).unwrap();
+            let current_tile = (mouse_button, tile_position);
+
+            if self.ui_state.last_tile != Some(current_tile) && self.ui_state.map_editor {
+                let tile = self.map.tile_mut(self.ui_state.layer, tile_position).unwrap();
                 *tile = match mouse_button {
-                    MouseButton::Left if state.is_autotile => Tile::autotile(state.coords),
-                    MouseButton::Left => Tile::basic(state.coords),
+                    MouseButton::Left if self.ui_state.is_autotile => Tile::autotile(self.ui_state.coords),
+                    MouseButton::Left => Tile::basic(self.ui_state.coords),
                     MouseButton::Right => Tile::empty(),
                     _ => unreachable!()
                 };
 
-                let coords = match mouse_button {
-                    MouseButton::Left => Some(state.coords.into()),
-                    MouseButton::Right => None,
-                    _ => unreachable!()
-                };
+                self.map.update_autotiles();
 
-                state.map.update_autotiles();
-
-                state.network.send(ClientMessage::ChangeTile(
-                    tile_pos.into(),
-                    state.layer,
-                    coords,
-                    state.is_autotile
-                ));
-
-                state.last_tile = Some(tile_pos);
+                self.ui_state.last_tile = Some(current_tile);
             }
         }
+    }
 
-        // draw
+    fn draw(&mut self) {
         clear_background(BLACK);
 
-        state.map.draw(MapLayer::Ground, &assets);
-        state.map.draw(MapLayer::Mask, &assets);
+        self.map.draw(MapLayer::Ground, &self.assets);
+        self.map.draw(MapLayer::Mask, &self.assets);
 
-        for player in &state.players {
-            player.draw(time, &assets);
+        for player in &self.players {
+            player.draw(self.time, &self.assets);
         }
 
-        state.map.draw(MapLayer::Fringe, &assets);
+        self.map.draw(MapLayer::Fringe, &self.assets);
+    }
+}
+
+pub async fn game_screen(network: NetworkClient, assets: Assets) {
+    let mut state = GameState::new(network, assets);
+
+    loop {
+        state.update();
+        state.draw();
 
         egui_macroquad::draw();
 

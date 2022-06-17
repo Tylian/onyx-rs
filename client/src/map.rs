@@ -1,5 +1,7 @@
-use crate::prelude::*;
-use crate::game::Assets;
+use common::network::{MapLayer, RemoteMap, RemoteTile, TileAttribute as RemoteAttribute};
+use macroquad::prelude::*;
+
+use crate::assets::Assets;
 
 const OFFSETS: &[(i32, i32)] = &[
     (0, -1), (1, 0), (0, 1), (-1, 0),
@@ -190,6 +192,7 @@ impl Default for TileAttribute {
     }
 }
 
+#[derive(Clone)]
 pub struct Map {
     width: u32,
     height: u32,
@@ -205,8 +208,8 @@ impl Map {
         Self {
             width,
             height,
-            ground: vec![Tile::Empty; size],
-            mask: vec![Tile::Empty; size],
+            ground: vec![Default::default(); size],
+            mask: vec![Default::default(); size],
             fringe: vec![Default::default(); size],
             attribute: vec![Default::default(); size],
         }
@@ -299,6 +302,88 @@ impl Map {
                 }
             }
             
+        }
+    }
+}
+
+impl From<RemoteMap> for Map {
+    fn from(remote: RemoteMap) -> Self {
+        let size = (remote.width * remote.height) as usize;
+        assert_eq!(remote.ground.len(), size);
+        assert_eq!(remote.mask.len(), size);
+        assert_eq!(remote.fringe.len(), size);
+        assert_eq!(remote.attribute.len(), size);
+
+        let mut map = Self {
+            width: remote.width,
+            height: remote.height,
+            ground: remote.ground.into_iter().map(|t| t.into()).collect(),
+            mask: remote.mask.into_iter().map(|t| t.into()).collect(),
+            fringe: remote.fringe.into_iter().map(|t| t.into()).collect(),
+            attribute: remote.attribute.into_iter().map(|t| t.into()).collect(),
+        };
+
+        map.update_autotiles();
+
+        map
+    }
+}
+
+impl From<RemoteTile> for Tile {
+    fn from(remote: RemoteTile) -> Self {
+        match remote {
+            RemoteTile::Empty => Tile::Empty,
+            RemoteTile::Basic(uv) => Tile::Basic(uv.into()),
+            RemoteTile::Autotile(uv) => Tile::Autotile { base: uv.into(), cache: Default::default() },
+        }
+    }
+}
+
+impl From<RemoteAttribute> for TileAttribute {
+    fn from(attribute: RemoteAttribute) -> Self {
+        match attribute {
+            RemoteAttribute::None => TileAttribute::None,
+            RemoteAttribute::Blocked => TileAttribute::None,
+        }
+    }
+}
+
+impl From<Map> for RemoteMap {
+    fn from(map: Map) -> Self {
+        let size = (map.width * map.height) as usize;
+        assert_eq!(map.ground.len(), size);
+        assert_eq!(map.mask.len(), size);
+        assert_eq!(map.fringe.len(), size);
+        assert_eq!(map.attribute.len(), size);
+
+        let remote = Self {
+            width: map.width,
+            height: map.height,
+            ground: map.ground.into_iter().map(|t| t.into()).collect(),
+            mask: map.mask.into_iter().map(|t| t.into()).collect(),
+            fringe: map.fringe.into_iter().map(|t| t.into()).collect(),
+            attribute: map.attribute.into_iter().map(|t| t.into()).collect(),
+        };
+
+        remote
+    }
+}
+
+impl From<Tile> for RemoteTile {
+    fn from(tile: Tile) -> Self {
+        match tile {
+            Tile::Empty => RemoteTile::Empty,
+            Tile::Basic(uv) => RemoteTile::Basic(uv.into()),
+            Tile::Autotile { base, .. } => RemoteTile::Autotile(base.into()),
+        }
+    }
+}
+
+impl From<TileAttribute> for RemoteAttribute {
+    fn from(attribute: TileAttribute) -> Self {
+        match attribute {
+            TileAttribute::None => RemoteAttribute::None,
+            TileAttribute::Blocked => RemoteAttribute::None,
         }
     }
 }

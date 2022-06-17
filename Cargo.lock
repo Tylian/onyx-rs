@@ -157,9 +157,12 @@ dependencies = [
  "common",
  "egui",
  "egui-macroquad",
+ "egui_extras",
+ "glam",
  "itertools",
  "macroquad",
  "message-io",
+ "mint",
  "serde",
 ]
 
@@ -309,6 +312,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "egui_extras"
+version = "0.18.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "877bfcce06463cdbcfd7f4efd57608b1384d6d9ae03b33e503fbba1d1a899a52"
+dependencies = [
+ "egui",
+]
+
+[[package]]
 name = "either"
 version = "1.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -364,6 +376,10 @@ name = "glam"
 version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "333928d5eb103c5d4050533cec0384302db6be8ef7d3cebd30ec6a35350353da"
+dependencies = [
+ "mint",
+ "serde",
+]
 
 [[package]]
 name = "hashbrown"
@@ -988,6 +1004,7 @@ dependencies = [
  "common",
  "glam",
  "message-io",
+ "mint",
  "serde",
 ]
 
