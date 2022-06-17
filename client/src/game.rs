@@ -204,10 +204,10 @@ impl GameState {
                                 for message in &self.ui_state.chat_messages {
                                     match message {
                                         ChatMessage::Server(text) => {
-                                            ui.colored_label(Color32::YELLOW, format!("[Server] {}\n", text));
+                                            ui.colored_label(Color32::YELLOW, format!("[Server] {}", text));
                                         },
                                         ChatMessage::Say(text) => {
-                                            ui.colored_label(Color32::WHITE, format!("[Say] {}\n", text));
+                                            ui.colored_label(Color32::WHITE, format!("[Say] {}", text));
                                         }
                                     };
                                 }
@@ -312,13 +312,13 @@ impl GameState {
     fn update_input(&mut self) {
         if self.my_id.is_some() {
             if self.movement_lock <= self.time {
-                let movement = if is_key_down(KeyCode::Up) {
+                let movement = if is_key_down(KeyCode::Up) || is_key_down(KeyCode::W) {
                     Some(Direction::North)
-                } else if is_key_down(KeyCode::Down) {
+                } else if is_key_down(KeyCode::Down) || is_key_down(KeyCode::S)  {
                     Some(Direction::South)
-                } else if is_key_down(KeyCode::Left) {
+                } else if is_key_down(KeyCode::Left) || is_key_down(KeyCode::A)  {
                     Some(Direction::West)
-                } else if is_key_down(KeyCode::Right) {
+                } else if is_key_down(KeyCode::Right) || is_key_down(KeyCode::D)  {
                     Some(Direction::East)
                 } else {
                     None

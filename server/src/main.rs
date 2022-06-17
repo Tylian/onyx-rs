@@ -1,4 +1,4 @@
-use std::{sync::RwLock, collections::HashMap};
+use std::{sync::RwLock, collections::HashMap, fs, path::PathBuf};
 
 use common::network::*;
 use glam::*;
@@ -38,11 +38,12 @@ impl GameServer {
 
         let size = 20 * 15;
 
-        Ok(Self {
-            network: RwLock::new(network),
-            network_queue: Vec::new(),
-            data: HashMap::new(),
-            map: RemoteMap {
+        let path = PathBuf::from("./map.bin");
+        let map = if path.exists() {
+            let bytes = fs::read(path)?;
+            bincode::deserialize(&bytes)?
+        } else {
+            RemoteMap {
                 width: 20,
                 height: 15,
                 ground: vec![Default::default(); size],
@@ -50,11 +51,23 @@ impl GameServer {
                 fringe: vec![Default::default(); size],
                 attribute: vec![Default::default(); size],
             }
+        };
+
+        Ok(Self {
+            network: RwLock::new(network),
+            network_queue: Vec::new(),
+            data: HashMap::new(),
+            map
         })
     }   
 
     pub fn run(self) {
         self.game_loop();
+    }
+
+    pub fn save_map(&self) {
+        let bytes = bincode::serialize(&self.map).expect("Couldn't save map rip");
+        fs::write("./map.bin", bytes).expect("Couldn't write map rip");
     }
 
     fn handle_connect(&mut self, client_id: ClientId) {
@@ -138,6 +151,7 @@ impl GameServer {
             },
             ClientMessage::SaveMap(remote) => {
                 self.map = remote;
+                self.save_map();
                 let packet = ServerMessage::ChangeMap(self.map.clone());
                 self.queue(Message::send_to_all(packet));
             },

@@ -70,10 +70,17 @@ fn draw_ui(ctx: &egui::Context, state: &mut UiState, assets: &Assets) {
 }
 
 pub async fn title_screen(assets: Assets) -> NetworkClient {
+    // let mut state = UiState {
+    //     address: "127.0.0.1:3042".to_owned(),
+    //     name: "Namda".to_owned(),
+    //     sprite: 5,
+    //     network: None,
+    // };
+
     let mut state = UiState {
-        address: "127.0.0.1:3042".to_owned(),
-        name: "Namda".to_owned(),
-        sprite: 5,
+        address: "66.228.47.52:3042".to_owned(),
+        name: "Player".to_owned(),
+        sprite: 0,
         network: None,
     };
 
