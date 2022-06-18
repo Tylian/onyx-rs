@@ -37,7 +37,7 @@ impl GameServer {
         let mut network = Networking::new();
         network.listen("0.0.0.0:3042");
 
-        let map = fs::read("./map1.bin")
+        let map = fs::read("./data/map1.bin")
             .ok().and_then(|bytes| bincode::deserialize(&bytes).ok())
             .unwrap_or_else(|| RemoteMap::new(50, 50));
 
@@ -55,7 +55,7 @@ impl GameServer {
 
     pub fn save_map(&self) {
         let bytes = bincode::serialize(&self.map).expect("Couldn't save map rip");
-        fs::write("./map1.bin", bytes).expect("Couldn't write map rip");
+        fs::write("./data/map1.bin", bytes).expect("Couldn't write map rip");
     }
 
     fn handle_connect(&mut self, client_id: ClientId) {

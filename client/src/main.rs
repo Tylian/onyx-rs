@@ -25,9 +25,6 @@ fn window_conf() -> Conf {
 
 #[macroquad::main(window_conf)]
 async fn main() {
-    #[cfg(debug_assertions)]
-    std::env::set_current_dir(env!("CARGO_MANIFEST_DIR")).unwrap();
-
     let mut assets = Assets::load().await
         .expect("Could not load assets");
 
