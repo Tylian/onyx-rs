@@ -6,22 +6,28 @@ pub struct Assets {
     pub tileset: Texture2D,
     pub sprites: Texture2D,
     pub font: Font,
-    pub egui: EguiAssets
+    pub egui: EguiTextures
 }
 
 #[derive(Default, Clone)]
-pub struct EguiAssets {
+pub struct EguiTextures {
     pub tileset: Option<egui::TextureHandle>,
     pub sprites: Option<egui::TextureHandle>,
 }
 
 impl Assets {
     pub async fn load() -> GameResult<Self> {
+        let tileset = load_texture("assets/tileset1.png").await?;
+        let sprites = load_texture("assets/sprites.png").await?;
+
+        tileset.set_filter(FilterMode::Nearest);
+        sprites.set_filter(FilterMode::Nearest);
+
         Ok(Self {
-            tileset: load_texture("assets/tileset1.png").await?,
-            sprites: load_texture("assets/sprites.png").await?,
+            tileset,
+            sprites,
             font: load_ttf_font("assets/LiberationMono-Regular.ttf").await?,
-            egui: Default::default()
+            egui: EguiTextures::default()
         })
     }
 
@@ -30,10 +36,10 @@ impl Assets {
         self.egui.tileset.get_or_insert_with(|| Self::load_egui_texture(ctx, "tileset", self.tileset));
     }
 
-    fn load_egui_texture(ctx: &egui::Context, name: impl ToString, texture: Texture2D) -> egui::TextureHandle {
+    fn load_egui_texture(ctx: &egui::Context, name: &str, texture: Texture2D) -> egui::TextureHandle {
         let image = texture.get_texture_data();
         let size = [image.width(), image.height()];
         let egui_image = egui::ColorImage::from_rgba_unmultiplied(size, &image.bytes);
-        ctx.load_texture(name.to_string(), egui_image)
+        ctx.load_texture(name, egui_image)
     }
 }

@@ -1,4 +1,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+#![warn(clippy::pedantic)]
 
 use macroquad::window::Conf;
 
@@ -16,8 +17,8 @@ pub type GameResult<T> = Result<T, Box<dyn std::error::Error>>;
 fn window_conf() -> Conf {
     Conf {
         window_title: "Onyx Engine".to_owned(),
-        window_width: 960,
-        window_height: 720,
+        window_width: 1600,
+        window_height: 900,
         ..Default::default()
     }
 }

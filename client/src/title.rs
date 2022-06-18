@@ -1,14 +1,30 @@
+use std::{fs, path::PathBuf};
+
 use macroquad::prelude::*;
 use common::network::ClientMessage;
+use serde::{Serialize, Deserialize};
 
-use crate::{networking::{NetworkClient, NetworkStatus}, assets::Assets};
+use crate::{networking::{NetworkClient, NetworkStatus}, assets::Assets, game::SPRITE_SIZE};
 
-const SPRITE_SIZE: f32 = 48.;
-
-struct UiState {
+#[derive(Serialize, Deserialize)]
+struct Settings {
     address: String,
     name: String,
-    sprite: u32,
+    sprite: u32
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Self {
+            address: "66.228.47.52:3042".to_owned(),
+            name: "Player".to_owned(),
+            sprite: 0,
+        }
+    }
+}
+
+struct UiState {
+    settings: Settings,
     network: Option<NetworkClient>
 }
 
@@ -26,18 +42,18 @@ fn draw_ui(ctx: &egui::Context, state: &mut UiState, assets: &Assets) {
         ui.add_enabled_ui(!is_connecting, |ui| {
             Grid::new("login").num_columns(2).show(ui, |ui| {
                 ui.label("Name");
-                ui.text_edit_singleline(&mut state.name);
+                ui.text_edit_singleline(&mut state.settings.name);
                 ui.end_row();
                 ui.label("Server");
-                ui.text_edit_singleline(&mut state.address);
+                ui.text_edit_singleline(&mut state.settings.address);
                 ui.end_row();
                 ui.label("Sprite:");
                 ui.horizontal_centered(|ui| {
-                    ui.add(DragValue::new(&mut state.sprite).clamp_range(0u32..=55u32));
+                    ui.add(DragValue::new(&mut state.settings.sprite).clamp_range(0u32..=55u32).speed(0.1));
                     let texture = assets.egui.sprites.as_ref().unwrap();
     
-                    let sprite_x = (state.sprite as f64 % 4.0) * 3.0;
-                    let sprite_y = (state.sprite as f64 / 4.0).floor() * 4.0;
+                    let sprite_x = (state.settings.sprite as f64 % 4.0) * 3.0;
+                    let sprite_y = (state.settings.sprite as f64 / 4.0).floor() * 4.0;
     
                     // walk left and right 
                     let offset_x = (((time / 0.25).floor() % 4.0).floor() - 1.0).abs();
@@ -55,10 +71,10 @@ fn draw_ui(ctx: &egui::Context, state: &mut UiState, assets: &Assets) {
             ui.horizontal(|ui| {
                 if ui.button("Login").clicked() {
                     let mut network = NetworkClient::new();
-                    network.connect(state.address.clone());
+                    network.connect(state.settings.address.clone());
 
                     // ! TODO
-                    network.send(ClientMessage::Hello(state.name.clone(), state.sprite));
+                    network.send(ClientMessage::Hello(state.settings.name.clone(), state.settings.sprite));
                     state.network = Some(network);
                 }
                 if is_connecting {
@@ -70,19 +86,22 @@ fn draw_ui(ctx: &egui::Context, state: &mut UiState, assets: &Assets) {
 }
 
 pub async fn title_screen(assets: Assets) -> NetworkClient {
-    // let mut state = UiState {
-    //     address: "127.0.0.1:3042".to_owned(),
-    //     name: "Namda".to_owned(),
-    //     sprite: 5,
-    //     network: None,
-    // };
-
+    let path = PathBuf::from("./settings.bin");
+    let settings = fs::read(path)
+        .ok().and_then(|bytes| bincode::deserialize(&bytes).ok())
+        .unwrap_or_default();
+    
     let mut state = UiState {
-        address: "66.228.47.52:3042".to_owned(),
-        name: "Player".to_owned(),
-        sprite: 0,
+        settings,
         network: None,
     };
+
+    // let mut state = UiState {
+    //     address: "66.228.47.52:3042".to_owned(),
+    //     name: "Player".to_owned(),
+    //     sprite: 0,
+    //     network: None,
+    // };
 
     loop {
         // update
@@ -92,6 +111,14 @@ pub async fn title_screen(assets: Assets) -> NetworkClient {
             .map_or(false, |n| n.status() == NetworkStatus::Connected);
 
         if is_online {
+            let written = bincode::serialize(&state.settings).ok()
+                .and_then(|bytes| fs::write("./settings.bin", bytes).ok())
+                .is_some();
+
+            if written {
+                println!("Couldn't write settings, just fyi");
+            }
+
             return state.network.unwrap();
         }
 

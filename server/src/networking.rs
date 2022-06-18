@@ -8,42 +8,45 @@ use message_io::node::{self, StoredNetEvent};
 
 // Represents a signal being sent from the game engine to the network layer
 pub enum GameSignal {
-    Send(MessageQualifier, ServerMessage),
+    Send(MessageTarget, ServerMessage),
     Disconnect
 }
 
-pub enum MessageQualifier {
-    SendTo(ClientId),
-    SendToAll,
-    SendToAllBut(ClientId)
+#[derive(Clone)]
+pub enum MessageTarget {
+    Exactly(ClientId),
+    Everyone,
+    EveryoneExcept(ClientId)
 }
 
+
+#[derive(Clone)]
 pub struct Message {
-    qualifier: MessageQualifier,
+    target: MessageTarget,
     message: ServerMessage
 }
 
 impl Message {
-    pub fn send_to(client_id: ClientId, message: ServerMessage) -> Self {
+    pub fn to(client_id: ClientId, message: ServerMessage) -> Self {
         Self {
-            qualifier: MessageQualifier::SendTo(client_id),
+            target: MessageTarget::Exactly(client_id),
             message
         }
     }
-    pub fn send_to_all(message: ServerMessage) -> Self {
+    pub fn everyone(message: ServerMessage) -> Self {
         Self {
-            qualifier: MessageQualifier::SendToAll,
+            target: MessageTarget::Everyone,
             message
         }
     }
-    pub fn send_to_all_but(client_id: ClientId, message: ServerMessage) -> Self {
+    pub fn everyone_except(client_id: ClientId, message: ServerMessage) -> Self {
         Self {
-            qualifier: MessageQualifier::SendToAllBut(client_id),
+            target: MessageTarget::EveryoneExcept(client_id),
             message
         }
     }
     pub fn write(self, networking: &Networking) {
-        networking.send(self.qualifier, self.message);
+        networking.send(self.target, self.message);
     }
 }
 
@@ -92,17 +95,17 @@ impl Networking {
                         GameSignal::Send(qualifier, data) => {
                             let bytes = bincode::serialize(&data).unwrap();
                             match qualifier {
-                                MessageQualifier::SendTo(client_id) => {
+                                MessageTarget::Exactly(client_id) => {
                                     if let Some(endpoint) = clients.get_by_right(&client_id) {
                                         handler.network().send(*endpoint, &bytes);
                                     }
                                 },
-                                MessageQualifier::SendToAll => {
+                                MessageTarget::Everyone => {
                                     for endpoint in clients.left_values() {
                                         handler.network().send(*endpoint, &bytes);
                                     }
                                 },
-                                MessageQualifier::SendToAllBut(exclude) => {
+                                MessageTarget::EveryoneExcept(exclude) => {
                                     for (endpoint, client_id) in clients.iter()  {
                                         if *client_id != exclude {
                                             handler.network().send(*endpoint, &bytes);
@@ -141,7 +144,7 @@ impl Networking {
                             let signal = NetworkSignal::Disconnected(*client_id);
                             tx.send(signal).unwrap();
                             clients.remove_by_left(&endpoint);
-                            println!("Client ({}) disconnected (total clients: {})", endpoint.addr(), clients.len())
+                            println!("Client ({}) disconnected (total clients: {})", endpoint.addr(), clients.len());
                         }
                     }
                 }
@@ -149,7 +152,7 @@ impl Networking {
         });
     }
 
-    pub fn send(&self, qualifier: MessageQualifier, message: ServerMessage) {
+    pub fn send(&self, qualifier: MessageTarget, message: ServerMessage) {
         let (tx, _rx) = &self.game;
         let signal = GameSignal::Send(qualifier, message);
         tx.send(signal).unwrap();

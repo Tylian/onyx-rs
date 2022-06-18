@@ -1,4 +1,5 @@
-use std::{sync::RwLock, collections::HashMap, fs, path::PathBuf};
+#![warn(clippy::pedantic)]
+use std::{sync::RwLock, collections::HashMap, fs};
 
 use common::network::*;
 use glam::*;
@@ -11,7 +12,7 @@ mod networking;
 struct ClientData {
     name: String,
     sprite: u32,
-    position: IVec2
+    position: Vec2
 }
 
 impl From<ClientData> for PlayerData {
@@ -36,13 +37,9 @@ impl GameServer {
         let mut network = Networking::new();
         network.listen("0.0.0.0:3042");
 
-        let path = PathBuf::from("./map.bin");
-        let map = if path.exists() {
-            let bytes = fs::read(path)?;
-            bincode::deserialize(&bytes)?
-        } else {
-            RemoteMap::new(20, 15)
-        };
+        let map = fs::read("./map1.bin")
+            .ok().and_then(|bytes| bincode::deserialize(&bytes).ok())
+            .unwrap_or_else(|| RemoteMap::new(50, 50));
 
         Ok(Self {
             network: RwLock::new(network),
@@ -58,7 +55,7 @@ impl GameServer {
 
     pub fn save_map(&self) {
         let bytes = bincode::serialize(&self.map).expect("Couldn't save map rip");
-        fs::write("./map.bin", bytes).expect("Couldn't write map rip");
+        fs::write("./map1.bin", bytes).expect("Couldn't write map rip");
     }
 
     fn handle_connect(&mut self, client_id: ClientId) {
@@ -66,10 +63,10 @@ impl GameServer {
     }
 
     fn handle_disconnect(&mut self, client_id: ClientId) {
-        self.queue(Message::send_to_all_but(client_id, ServerMessage::PlayerLeft(client_id)));
+        self.queue(Message::everyone_except(client_id, ServerMessage::PlayerLeft(client_id)));
         if let Some(client_data) = self.data.remove(&client_id).flatten() {
             let goodbye = ServerMessage::Message(ChatMessage::Server(format!("{} has left the game.", &client_data.name)));
-            self.queue(Message::send_to_all_but(client_id, goodbye));
+            self.queue(Message::everyone_except(client_id, goodbye));
         }
     }
 
@@ -80,18 +77,18 @@ impl GameServer {
                 let client_data = ClientData {
                     name,
                     sprite,
-                    position: glam::ivec2(10, 7),
+                    position: glam::vec2(10. * 48., 7. * 48.),
                 };
 
                 // Send them their ID
-                self.queue(Message::send_to(client_id, ServerMessage::Hello(client_id)));
+                self.queue(Message::to(client_id, ServerMessage::Hello(client_id)));
 
                 // Send them the map
                 let packet = ServerMessage::ChangeMap(self.map.clone());
-                self.queue(Message::send_to(client_id, packet));
+                self.queue(Message::to(client_id, packet));
 
                 // Tell everyone else they joined
-                self.queue(Message::send_to_all(ServerMessage::PlayerJoined(
+                self.queue(Message::everyone(ServerMessage::PlayerJoined(
                     client_id,
                     client_data.clone().into()
                 )));
@@ -99,52 +96,51 @@ impl GameServer {
                 // Send everyone else the fact that they joined
                 let packets = self.data.iter()
                     .filter_map(|(k, v)| v.as_ref().map(|v| (k, v)))
-                    .map(|(client_id, data)|
-                        ServerMessage::PlayerJoined(*client_id, data.clone().into())
-                    )
+                    .map(|(id, data)| Message::to(client_id,  ServerMessage::PlayerJoined(*id, data.clone().into())))
                     .collect::<Vec<_>>();
         
-                for packet in packets {
-                    self.queue(Message::send_to(client_id, packet));
-                }
+                self.queue_all(&packets);
 
                 // Send welcome message
-                self.queue(Message::send_to(client_id, ServerMessage::Message(ChatMessage::Server("Welcome to Game!".to_owned()))));
+                self.queue(Message::to(client_id, ServerMessage::Message(ChatMessage::Server("Welcome to Game!".to_owned()))));
 
                 // Send join message
                 let welcome = ServerMessage::Message(ChatMessage::Server(format!("{} has joined the game.", &client_data.name)));
-                self.queue(Message::send_to_all_but(client_id, welcome));
+                self.queue(Message::everyone_except(client_id, welcome));
 
                 // Save their data, they are now officially in game
                 self.data.insert(client_id, Some(client_data));
             },
-            ClientMessage::Move(direction) => {
-                if let Some(data) = self.data.get_mut(&client_id).unwrap().as_mut() {
-                    data.position += direction.offset().into();
-                    let message = ServerMessage::PlayerMoved { client_id, position: data.position.into(), direction };
-                    self.queue(Message::send_to_all_but(client_id, message));
-                }
-            },
+
             ClientMessage::Message(text) => {
                 if let Some(data) = self.data.get(&client_id).unwrap() {
                     let full_text = format!("{}: {}", data.name, text);
                     let packet = ServerMessage::Message(ChatMessage::Say(full_text));
-                    self.queue(Message::send_to_all(packet));
+                    self.queue(Message::everyone(packet));
                 }
             },
             ClientMessage::ChangeTile { position, layer, tile, is_autotile } => {
                 let packet = ServerMessage::ChangeTile { position, layer, tile, is_autotile };
-                self.queue(Message::send_to_all(packet));
+                self.queue(Message::everyone(packet));
             },
             ClientMessage::RequestMap => {
                 let packet = ServerMessage::ChangeMap(self.map.clone());
-                self.queue(Message::send_to(client_id, packet));
+                self.queue(Message::to(client_id, packet));
             },
             ClientMessage::SaveMap(remote) => {
                 self.map = remote;
                 self.save_map();
                 let packet = ServerMessage::ChangeMap(self.map.clone());
-                self.queue(Message::send_to_all(packet));
+                self.queue(Message::everyone(packet));
+            },
+            ClientMessage::Move { position, direction, velocity } => {
+                // todo server side movement tracking
+                let packet = ServerMessage::PlayerMoved { client_id, position, direction, velocity };
+                self.queue(Message::everyone_except(client_id, packet));
+            },
+            ClientMessage::StopMoving { position, direction } => {
+                let packet = ServerMessage::PlayerStopped { client_id, position, direction };
+                self.queue(Message::everyone_except(client_id, packet));
             },
         }
     }
@@ -178,6 +174,10 @@ impl GameServer {
 
     pub fn queue(&mut self, message: Message) {
         self.network_queue.push(message);
+    }
+
+    pub fn queue_all(&mut self, messages: &[Message]) {
+        self.network_queue.extend_from_slice(messages);
     }
 
     pub fn send_all(&mut self) {

@@ -83,7 +83,7 @@ impl NetworkClient {
             let (_task, mut receive) = listener.enqueue();
 
             loop {
-                for event in receive.try_receive() {
+                while let Some(event) = receive.try_receive() {
                     match event.network() {
                         StoredNetEvent::Connected(_, _) => {
                             state.set_status(NetworkStatus::Connected);

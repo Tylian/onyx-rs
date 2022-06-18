@@ -1,3 +1,4 @@
+#![warn(clippy::pedantic)]
 pub mod network;
 
 type Point2 = mint::Point2<i32>;

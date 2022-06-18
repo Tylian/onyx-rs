@@ -2,8 +2,9 @@ use std::collections::HashMap;
 
 use serde::{Serialize, Deserialize};
 use enum_iterator::Sequence;
+use ndarray::Array2;
 
-use crate::{Point2, Vector2, vector2};
+use mint::{Point2, Vector2};
 
 #[derive(Serialize, Deserialize, PartialEq, Debug, Eq, Hash, Clone, Copy)]
 #[serde(transparent)]
@@ -17,10 +18,11 @@ impl From<u64> for ClientId {
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Debug)]
 pub enum ClientMessage {
-    Move(Direction),
+    Move { position: Point2<f32>, direction: Direction, velocity: Vector2<f32> },
+    StopMoving { position: Point2<f32>, direction: Direction },
     Hello(String, u32),
     Message(String),
-    ChangeTile { position: Point2, layer: MapLayer, tile: Option<Point2>, is_autotile: bool },
+    ChangeTile { position: Point2<i32>, layer: MapLayer, tile: Option<Point2<i32>>, is_autotile: bool },
     RequestMap,
     SaveMap(RemoteMap)
 }
@@ -30,9 +32,10 @@ pub enum ServerMessage {
     Hello(ClientId),
     PlayerJoined(ClientId, PlayerData),
     PlayerLeft(ClientId),
-    PlayerMoved { client_id: ClientId, position: Point2, direction: Direction },
+    PlayerMoved { client_id: ClientId, position: Point2<f32>, direction: Direction, velocity: Vector2<f32> },
+    PlayerStopped { client_id: ClientId, position: Point2<f32>, direction: Direction },
     Message(ChatMessage),
-    ChangeTile { position: Point2, layer: MapLayer, tile: Option<Point2>, is_autotile: bool },
+    ChangeTile { position: Point2<i32>, layer: MapLayer, tile: Option<Point2<i32>>, is_autotile: bool },
     ChangeMap(RemoteMap),
 }
 
@@ -53,26 +56,40 @@ impl Direction {
             Self::North => Self::South,
         }
     }
-    pub fn offset(&self) -> Vector2 {
+    pub fn offset_f32(&self) -> Vector2<f32> {
         match self {
-            Direction::South => vector2(0, 1),
-            Direction::West => vector2(-1, 0),
-            Direction::East => vector2(1, 0),
-            Direction::North => vector2(0, -1),
+            Direction::South => Vector2 { x: 0., y: 1. },
+            Direction::West => Vector2 { x: -1., y: 0. },
+            Direction::East => Vector2 { x: 1., y: 0. },
+            Direction::North => Vector2 { x: 0., y: -1. },
+        }
+    }
+    pub fn offset_i32(&self) -> Vector2<i32> {
+        match self {
+            Direction::South => Vector2 { x: 0, y: 1 },
+            Direction::West => Vector2 { x: -1, y: 0 },
+            Direction::East => Vector2 { x: 1, y: 0 },
+            Direction::North => Vector2 { x: 0, y: -1 },
         }
     }
 }
 
-impl From<Direction> for Vector2 {
+impl From<Direction> for Vector2<f32> {
     fn from(dir: Direction) -> Self {
-       dir.offset()
+       dir.offset_f32()
+    }
+}
+
+impl From<Direction> for Vector2<i32> {
+    fn from(dir: Direction) -> Self {
+       dir.offset_i32()
     }
 }
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Debug)]
 pub struct PlayerData {
     pub name: String,
-    pub position: Point2,
+    pub position: Point2<f32>,
     pub sprite: u32,
 }
 
@@ -103,24 +120,23 @@ impl MapLayer {
 pub struct RemoteMap {
     pub width: u32,
     pub height: u32,
-    pub layers: HashMap<MapLayer, Vec<RemoteTile>>,
-    pub attributes: Vec<TileAttribute>
+    pub layers: HashMap<MapLayer, Array2<RemoteTile>>,
+    pub attributes: Array2<TileAttribute>
 }
 
 impl RemoteMap {
     pub fn new(width: u32, height: u32) -> Self {
-        let size = (width * height).try_into().unwrap();
         let mut layers = HashMap::new();
 
         for layer in MapLayer::iter() {
-            layers.insert(layer, vec![Default::default(); size]);
+            layers.insert(layer, Array2::default((width as usize, height as usize)));
         }
 
         Self {
             width,
             height,
             layers,
-            attributes: vec![Default::default(); size],
+            attributes: Array2::default((width as usize, height as usize)),
         }
     }
 }
@@ -128,8 +144,8 @@ impl RemoteMap {
 #[derive(Copy, Clone, Serialize, Deserialize, PartialEq, Debug)]
 pub enum RemoteTile {
     Empty,
-    Basic(Point2),
-    Autotile(Point2),
+    Basic(Point2<i32>),
+    Autotile(Point2<i32>),
 }
 
 impl Default for RemoteTile {
