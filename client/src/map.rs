@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use onyx_common::network::{MapLayer, RemoteMap, RemoteTile, AttributeRect as RemoteAttribute, AttributeData};
+use onyx_common::network::{MapLayer, Map as NetworkMap, Tile as NetworkTile, Attribute as NetworkAttribute, AttributeData};
 use macroquad::prelude::*;
 use mint::{Vector2, Point2};
 use ndarray::Array2;
@@ -176,12 +176,12 @@ impl Tile {
 }
 
 #[derive(Copy, Clone, Debug)]
-pub struct AttributeRect {
+pub struct Attribute {
     pub position: Rect,
     pub data: AttributeData,
 }
 
-impl AttributeRect {
+impl Attribute {
     pub fn draw(&self, assets: &Assets) {
         let color = self.color();
         let text = self.text();
@@ -219,7 +219,7 @@ pub struct Map {
     pub width: u32,
     pub height: u32,
     layers: HashMap<MapLayer, Array2<Tile>>,
-    pub attributes: Vec<AttributeRect>,
+    pub attributes: Vec<Attribute>,
 }
 
 impl Map {
@@ -346,10 +346,10 @@ pub enum MapError {
     IncorrectLayers,
 }
 
-impl TryFrom<RemoteMap> for Map {
+impl TryFrom<NetworkMap> for Map {
     type Error = MapError;
 
-    fn try_from(value: RemoteMap) -> Result<Self, Self::Error> {
+    fn try_from(value: NetworkMap) -> Result<Self, Self::Error> {
         let size = (value.width * value.height) as usize;
         ensure!(value.layers.len() == MapLayer::count(), MapError::IncorrectLayers);
 
@@ -372,18 +372,18 @@ impl TryFrom<RemoteMap> for Map {
     }
 }
 
-impl From<RemoteTile> for Tile {
-    fn from(remote: RemoteTile) -> Self {
+impl From<NetworkTile> for Tile {
+    fn from(remote: NetworkTile) -> Self {
         match remote {
-            RemoteTile::Empty => Tile::Empty,
-            RemoteTile::Basic(uv) => Tile::Basic(uv.into()),
-            RemoteTile::Autotile(uv) => Tile::Autotile { base: uv.into(), cache: Default::default() },
+            NetworkTile::Empty => Tile::Empty,
+            NetworkTile::Basic(uv) => Tile::Basic(uv.into()),
+            NetworkTile::Autotile(uv) => Tile::Autotile { base: uv.into(), cache: Default::default() },
         }
     }
 }
 
 // Note: It is considered an unrecoverable error to have a map that has an invalid size
-impl From<Map> for RemoteMap {
+impl From<Map> for NetworkMap {
     fn from(value: Map) -> Self {
         let size = (value.width * value.height) as usize;
         assert_eq!(value.layers.len(), MapLayer::count());
@@ -403,18 +403,18 @@ impl From<Map> for RemoteMap {
     }
 }
 
-impl From<Tile> for RemoteTile {
+impl From<Tile> for NetworkTile {
     fn from(tile: Tile) -> Self {
         match tile {
-            Tile::Empty => RemoteTile::Empty,
-            Tile::Basic(uv) => RemoteTile::Basic(uv.into()),
-            Tile::Autotile { base, .. } => RemoteTile::Autotile(base.into()),
+            Tile::Empty => NetworkTile::Empty,
+            Tile::Basic(uv) => NetworkTile::Basic(uv.into()),
+            Tile::Autotile { base, .. } => NetworkTile::Autotile(base.into()),
         }
     }
 }
 
-impl From<RemoteAttribute> for AttributeRect {
-    fn from(other: RemoteAttribute) -> Self {
+impl From<NetworkAttribute> for Attribute {
+    fn from(other: NetworkAttribute) -> Self {
         Self {
             position: Rect::new(other.position.x, other.position.y, other.size.x, other.size.y),
             data: other.data,
@@ -422,8 +422,8 @@ impl From<RemoteAttribute> for AttributeRect {
     }
 }
 
-impl From<AttributeRect> for RemoteAttribute {
-    fn from(other: AttributeRect) -> Self {
+impl From<Attribute> for NetworkAttribute {
+    fn from(other: Attribute) -> Self {
         Self {
             position: Point2 { x: other.position.x, y: other.position.y },
             size: Vector2 { x: other.position.w, y: other.position.h },

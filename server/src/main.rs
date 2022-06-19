@@ -1,9 +1,9 @@
 use std::{sync::RwLock, collections::HashMap, fs};
 
-use onyx_common::network::*;
 use glam::*;
 use log::{debug, error};
 use anyhow::{anyhow, Result};
+use onyx_common::network::{PlayerData, ClientId, Map as NetworkMap, ServerMessage, ChatMessage, ClientMessage};
 
 use crate::networking::{Networking, NetworkSignal, Message};
 
@@ -31,7 +31,7 @@ struct GameServer {
     network: RwLock<Networking>,
     network_queue: Vec<Message>,
     data: HashMap<ClientId, Option<ClientData>>,
-    maps: HashMap<String, RemoteMap>,
+    maps: HashMap<String, NetworkMap>,
 }
 
 impl GameServer {
@@ -53,7 +53,7 @@ impl GameServer {
         self.game_loop();
     }
 
-    pub fn load_maps() -> Result<HashMap<String, RemoteMap>> {
+    pub fn load_maps() -> Result<HashMap<String, NetworkMap>> {
         let mut maps = HashMap::new();
         for entry in fs::read_dir("./data/maps")? {
             let entry = entry?;
@@ -68,7 +68,7 @@ impl GameServer {
         }
 
         // ensure there's a "start" map
-        maps.entry("start".to_owned()).or_insert_with(|| RemoteMap::new(20, 15));
+        maps.entry("start".to_owned()).or_insert_with(|| NetworkMap::new(20, 15));
         Ok(maps)
     }
 
@@ -109,7 +109,7 @@ impl GameServer {
                 // Send them the map
                 let map = self.maps
                     .entry(client_data.map.clone())
-                    .or_insert_with(|| RemoteMap::new(20, 15))
+                    .or_insert_with(|| NetworkMap::new(20, 15))
                     .clone();
                 self.queue(Message::to(client_id, ServerMessage::ChangeMap(map)));
 
@@ -152,7 +152,7 @@ impl GameServer {
             ClientMessage::RequestMap => {
                 if let Some(data) = self.data.get(&client_id).unwrap() {
                     let map = self.maps.entry(data.map.clone())
-                        .or_insert_with(|| RemoteMap::new(20, 15));
+                        .or_insert_with(|| NetworkMap::new(20, 15));
                     let packet = ServerMessage::ChangeMap(map.clone());
                     self.queue(Message::to(client_id, packet));
                 }

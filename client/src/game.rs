@@ -6,7 +6,7 @@ use log::{error, info, debug};
 
 use crate::assets::Assets;
 use crate::networking::{NetworkClient, NetworkStatus};
-use crate::map::{Map, Tile, AttributeRect};
+use crate::map::{Map, Tile, Attribute};
 use self::player::{Player, Animation, Tween};
 
 mod player;
@@ -510,7 +510,7 @@ impl GameState {
 
                         let drag_rect = Rect::new(start.x, start.y, size.x, size.y);
 
-                        self.map.attributes.push(AttributeRect {
+                        self.map.attributes.push(Attribute {
                             position: drag_rect,
                             data: self.ui_state.attribute,
                         });
@@ -572,7 +572,7 @@ impl GameState {
                 let size = end - start;
 
                 let drag_rect = Rect::new(start.x, start.y, size.x, size.y);
-                let attrib = AttributeRect {
+                let attrib = Attribute {
                     position: drag_rect,
                     data: self.ui_state.attribute,
                 };

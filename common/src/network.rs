@@ -24,7 +24,7 @@ pub enum ClientMessage {
     Message(String),
     ChangeTile { position: Point2<i32>, layer: MapLayer, tile: Option<Point2<i32>>, is_autotile: bool },
     RequestMap,
-    SaveMap(RemoteMap)
+    SaveMap(Map)
 }
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Debug)]
@@ -36,7 +36,7 @@ pub enum ServerMessage {
     PlayerStopped { client_id: ClientId, position: Point2<f32>, direction: Direction },
     Message(ChatMessage),
     ChangeTile { position: Point2<i32>, layer: MapLayer, tile: Option<Point2<i32>>, is_autotile: bool },
-    ChangeMap(RemoteMap),
+    ChangeMap(Map),
 }
 
 #[derive(Copy, Clone, Serialize, Deserialize, PartialEq, Debug)]
@@ -117,14 +117,14 @@ impl MapLayer {
 }
 
 #[derive(Default, Clone, Serialize, Deserialize, PartialEq, Debug)]
-pub struct RemoteMap {
+pub struct Map {
     pub width: u32,
     pub height: u32,
-    pub layers: HashMap<MapLayer, Array2<RemoteTile>>,
-    pub attributes: Vec<AttributeRect>
+    pub layers: HashMap<MapLayer, Array2<Tile>>,
+    pub attributes: Vec<Attribute>
 }
 
-impl RemoteMap {
+impl Map {
     pub fn new(width: u32, height: u32) -> Self {
         let mut layers = HashMap::new();
 
@@ -142,15 +142,15 @@ impl RemoteMap {
 }
 
 #[derive(Copy, Clone, Serialize, Deserialize, PartialEq, Debug)]
-pub enum RemoteTile {
+pub enum Tile {
     Empty,
     Basic(Point2<i32>),
     Autotile(Point2<i32>),
 }
 
-impl Default for RemoteTile {
+impl Default for Tile {
     fn default() -> Self {
-        RemoteTile::Empty
+        Tile::Empty
     }
 }
 
@@ -160,7 +160,7 @@ pub enum AttributeData {
 }
 
 #[derive(Copy, Clone, Serialize, Deserialize, PartialEq, Debug)]
-pub struct AttributeRect {
+pub struct Attribute {
     pub position: Point2<f32>,
     pub size: Vector2<f32>,
     pub data: AttributeData,
