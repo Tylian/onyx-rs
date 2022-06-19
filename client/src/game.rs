@@ -132,7 +132,7 @@ impl GameState {
     fn update_players(&mut self) {
         for player in self.players.values_mut() {
             if let Some(tween) = player.tween.as_mut() {
-                let offset = tween.speed * (self.time - tween.last_update) as f32;
+                let offset = tween.velocity * (self.time - tween.last_update) as f32;
                 let new_position = player.position + offset;
                 // only block on the bottom half of the sprite, feels better
                 let sprite_rect = Rect::new(new_position.x, new_position.y + SPRITE_SIZE / 2.0, SPRITE_SIZE, SPRITE_SIZE / 2.0);
@@ -193,20 +193,16 @@ impl GameState {
                 },
                 ServerMessage::PlayerMoved { client_id, position, direction, velocity } => {
                     if let Some(player) = self.players.get_mut(&client_id) {
-                        let speed = Vec2::from(velocity).length();
-                        // todo keep starting time?
-                        player.position = position.into();
-                        player.animation = Animation::Walking { start: time, speed: speed as f64 };
-                        player.tween = Some(Tween { speed: velocity.into(), last_update: time });
-                        player.direction = direction;
-                    }
-                },
-                ServerMessage::PlayerStopped { client_id, position, direction } => {
-                    if let Some(player) = self.players.get_mut(&client_id) {
                         player.position = position.into();
                         player.direction = direction;
-                        player.animation = Animation::Standing;
-                        player.tween = None;
+                        if let Some(velocity) = velocity {
+                            let velocity = Vec2::from(velocity);
+                            player.animation = Animation::Walking { start: time, speed: velocity.length() as f64 };
+                            player.tween = Some(Tween { velocity, last_update: time });
+                        } else {
+                            player.animation = Animation::Standing;
+                            player.tween = None;
+                        }
                     }
                 },
             }
@@ -439,15 +435,15 @@ impl GameState {
     
                         // todo keep starting time?
                         player.animation = Animation::Walking { start: self.time, speed };
-                        player.tween = Some(Tween { speed: velocity, last_update: self.time });
+                        player.tween = Some(Tween { velocity, last_update: self.time });
                         player.direction = direction;
     
-                        self.network.send(ClientMessage::Move { position: player.position.into(), direction, velocity: velocity.into() });
+                        self.network.send(ClientMessage::Move { position: player.position.into(), direction, velocity: Some(velocity.into()) });
                     } else {
                         player.animation = Animation::Standing;
                         player.tween = None;
     
-                        self.network.send(ClientMessage::StopMoving { position: player.position.into(), direction: player.direction });
+                        self.network.send(ClientMessage::Move { position: player.position.into(), direction: player.direction, velocity: None });
                     }
                 }
             }

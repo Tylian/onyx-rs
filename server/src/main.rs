@@ -1,24 +1,31 @@
-use std::{sync::RwLock, collections::HashMap, fs};
+use std::{sync::RwLock, collections::HashMap, fs, time};
 
 use glam::*;
 use log::{debug, error};
 use anyhow::{anyhow, Result};
-use onyx_common::network::{PlayerData, ClientId, Map as NetworkMap, ServerMessage, ChatMessage, ClientMessage};
+use onyx_common::network::{PlayerData as NetworkPlayerData, ClientId, Map as NetworkMap, ServerMessage, ChatMessage, ClientMessage};
 
 use crate::networking::{Networking, NetworkSignal, Message};
 
 mod networking;
 
+#[derive(Copy, Clone)]
+pub struct Tween {
+    pub velocity: Vec2,
+    pub last_update: time::Duration,
+}
+
 #[derive(Clone)]
-struct ClientData {
+struct PlayerData {
     name: String,
     sprite: u32,
     position: Vec2,
+    tween: Option<Tween>,
     map: String
 }
 
-impl From<ClientData> for PlayerData {
-    fn from(other: ClientData) -> Self {
+impl From<PlayerData> for NetworkPlayerData {
+    fn from(other: PlayerData) -> Self {
         Self {
             name: other.name,
             sprite: other.sprite,
@@ -30,8 +37,10 @@ impl From<ClientData> for PlayerData {
 struct GameServer {
     network: RwLock<Networking>,
     network_queue: Vec<Message>,
-    data: HashMap<ClientId, Option<ClientData>>,
+    data: HashMap<ClientId, Option<PlayerData>>,
     maps: HashMap<String, NetworkMap>,
+    start_time: time::Instant,
+    time: time::Duration,
 }
 
 impl GameServer {
@@ -45,6 +54,8 @@ impl GameServer {
             network: RwLock::new(network),
             network_queue: Vec::new(),
             data: HashMap::new(),
+            start_time: time::Instant::now(),
+            time: time::Duration::ZERO,
             maps
         })
     }   
@@ -96,11 +107,12 @@ impl GameServer {
         debug!("{:?}: {:?}", client_id, message);
         match message {
             ClientMessage::Hello(name, sprite) => {
-                let client_data = ClientData {
+                let client_data = PlayerData {
                     name,
                     sprite,
                     position: glam::vec2(10. * 48., 7. * 48.),
                     map: String::from("start"),
+                    tween: None,
                 };
 
                 // Send them their ID
@@ -168,19 +180,20 @@ impl GameServer {
                 }
             },
             ClientMessage::Move { position, direction, velocity } => {
-                // todo server side movement tracking
-                let packet = ServerMessage::PlayerMoved { client_id, position, direction, velocity };
-                self.queue(Message::everyone_except(client_id, packet));
-            },
-            ClientMessage::StopMoving { position, direction } => {
-                let packet = ServerMessage::PlayerStopped { client_id, position, direction };
-                self.queue(Message::everyone_except(client_id, packet));
+                if let Some(data) = self.data.get_mut(&client_id).unwrap() {
+                    data.position = position.into();
+                    data.tween = velocity.map(|v| Tween { velocity: v.into(), last_update: self.time });
+                    let packet = ServerMessage::PlayerMoved { client_id, position, direction, velocity };
+                    self.queue(Message::everyone_except(client_id, packet));
+                }
             },
         }
     }
 
     fn game_loop(mut self) {
         loop {
+            self.time = self.start_time.elapsed();
+
             // networking
             while let Some(signal) = self.try_recv() {
                 match signal {

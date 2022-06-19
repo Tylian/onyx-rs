@@ -40,7 +40,7 @@ impl Animation {
 
 #[derive(Copy, Clone)]
 pub struct Tween {
-    pub speed: Vec2,
+    pub velocity: Vec2,
     pub last_update: f64,
 }
 

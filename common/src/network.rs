@@ -18,8 +18,7 @@ impl From<u64> for ClientId {
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Debug)]
 pub enum ClientMessage {
-    Move { position: Point2<f32>, direction: Direction, velocity: Vector2<f32> },
-    StopMoving { position: Point2<f32>, direction: Direction },
+    Move { position: Point2<f32>, direction: Direction, velocity: Option<Vector2<f32>> },
     Hello(String, u32),
     Message(String),
     ChangeTile { position: Point2<i32>, layer: MapLayer, tile: Option<Point2<i32>>, is_autotile: bool },
@@ -32,8 +31,7 @@ pub enum ServerMessage {
     Hello(ClientId),
     PlayerJoined(ClientId, PlayerData),
     PlayerLeft(ClientId),
-    PlayerMoved { client_id: ClientId, position: Point2<f32>, direction: Direction, velocity: Vector2<f32> },
-    PlayerStopped { client_id: ClientId, position: Point2<f32>, direction: Direction },
+    PlayerMoved { client_id: ClientId, position: Point2<f32>, direction: Direction, velocity: Option<Vector2<f32>> },
     Message(ChatMessage),
     ChangeTile { position: Point2<i32>, layer: MapLayer, tile: Option<Point2<i32>>, is_autotile: bool },
     ChangeMap(Map),
