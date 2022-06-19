@@ -330,8 +330,8 @@ impl Map {
         }
 
         let map_rect = Rect::new(0., 0., width as f32 * TILE_SIZE, height as f32 * TILE_SIZE);
-        let attributes = self.attributes.iter()
-            .filter_map(|&attrib| map_rect.intersect(attrib.position).map(|position| AttributeRect { position, ..attrib }))
+        let attributes = self.attributes.iter().cloned()
+            .filter(|attrib| map_rect.overlaps(&attrib.position))
             .collect();
 
         Map { width, height, layers, attributes }
