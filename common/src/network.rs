@@ -121,7 +121,7 @@ pub struct RemoteMap {
     pub width: u32,
     pub height: u32,
     pub layers: HashMap<MapLayer, Array2<RemoteTile>>,
-    pub attributes: Array2<TileAttribute>
+    pub attributes: Vec<AttributeRect>
 }
 
 impl RemoteMap {
@@ -136,7 +136,7 @@ impl RemoteMap {
             width,
             height,
             layers,
-            attributes: Array2::default((width as usize, height as usize)),
+            attributes: Vec::new(),
         }
     }
 }
@@ -155,13 +155,13 @@ impl Default for RemoteTile {
 }
 
 #[derive(Copy, Clone, Serialize, Deserialize, PartialEq, Debug)]
-pub enum TileAttribute {
-    None,
+pub enum AttributeData {
     Blocked,
 }
 
-impl Default for TileAttribute {
-    fn default() -> Self {
-        TileAttribute::None
-    }
+#[derive(Copy, Clone, Serialize, Deserialize, PartialEq, Debug)]
+pub struct AttributeRect {
+    pub position: Point2<f32>,
+    pub size: Vector2<f32>,
+    pub data: AttributeData,
 }

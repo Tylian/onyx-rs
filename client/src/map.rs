@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 
-use common::network::{MapLayer, RemoteMap, RemoteTile, TileAttribute as RemoteAttribute};
+use onyx_common::network::{MapLayer, RemoteMap, RemoteTile, AttributeRect as RemoteAttribute, AttributeData};
 use macroquad::prelude::*;
+use mint::{Vector2, Point2};
 use ndarray::Array2;
 use thiserror::Error;
 
@@ -174,15 +175,42 @@ impl Tile {
     }
 }
 
-#[derive(Copy, Clone)]
-pub enum TileAttribute {
-    None,
-    Blocked,
+#[derive(Copy, Clone, Debug)]
+pub struct AttributeRect {
+    pub position: Rect,
+    pub data: AttributeData,
 }
 
-impl Default for TileAttribute {
-    fn default() -> Self {
-        Self::None
+impl AttributeRect {
+    pub fn draw(&self, assets: &Assets) {
+        let color = self.color();
+        let text = self.text();
+
+        let Rect { x, y, w, h } = self.position;
+        draw_rectangle(x, y, w, h, Color::new(color.r, color.g, color.b, 0.4));
+        draw_rectangle_lines(x, y, w, h, 1.0, color);
+
+        let bounds = measure_text(&text, Some(assets.font), 16, 1.0);
+        
+        let text_x = x + (w - bounds.width) / 2.0;
+        let text_y = y + (h - bounds.height) / 2.0 + bounds.offset_y;
+
+        draw_text_ex(&text, text_x, text_y, TextParams {
+            font: assets.font,
+            font_size: 16,
+            color,
+            ..Default::default()
+        });
+    }
+    pub fn text(&self) -> String {
+        match self.data {
+            AttributeData::Blocked => String::from("Blocked"),
+        }
+    }
+    pub fn color(&self) -> Color {
+        match self.data {
+            AttributeData::Blocked => RED,
+        }
     }
 }
 
@@ -191,7 +219,7 @@ pub struct Map {
     pub width: u32,
     pub height: u32,
     layers: HashMap<MapLayer, Array2<Tile>>,
-    attributes: Array2<TileAttribute>
+    pub attributes: Vec<AttributeRect>,
 }
 
 impl Map {
@@ -206,7 +234,7 @@ impl Map {
             width,
             height,
             layers,
-            attributes: Array2::default((width as usize, height as usize)),
+            attributes: Vec::new(),
         }
     }
 
@@ -230,13 +258,19 @@ impl Map {
         self.layers[&layer].iter()
     }
 
-    pub fn draw(&self, layer: MapLayer, assets: &Assets) {
+    pub fn draw_layer(&self, layer: MapLayer, assets: &Assets) {
         for (x, y) in itertools::iproduct!(0..self.width, 0..self.height) {
             let position = ivec2(x as i32, y as i32);
             let screen_position = position.as_f32() * TILE_SIZE;
             if let Some(tile) = self.tile(layer, position) {
                 tile.draw(screen_position, assets);
             }
+        }
+    }
+
+    pub fn draw_attributes(&self, assets: &Assets) {
+        for attrib in &self.attributes {
+            attrib.draw(assets);
         }
     }
 
@@ -280,8 +314,6 @@ impl Map {
 
     pub fn resize(&self, width: u32, height: u32) -> Map {
         let mut layers = HashMap::new();
-        let mut attributes = Array2::default((width as usize, height as usize));
-
         for layer in MapLayer::iter() {
             layers.insert(layer, Array2::default((width as usize, height as usize)));
         }
@@ -295,12 +327,12 @@ impl Map {
                     }
                 }
             }
-            if let Some(&attribute) = self.attributes.get(index) {
-                if let Some(new_attribute) = attributes.get_mut(index) {
-                    *new_attribute = attribute;
-                }
-            } 
         }
+
+        let map_rect = Rect::new(0., 0., width as f32 * TILE_SIZE, height as f32 * TILE_SIZE);
+        let attributes = self.attributes.iter()
+            .filter_map(|&attrib| map_rect.intersect(attrib.position).map(|position| AttributeRect { position, ..attrib }))
+            .collect();
 
         Map { width, height, layers, attributes }
     }
@@ -319,7 +351,6 @@ impl TryFrom<RemoteMap> for Map {
 
     fn try_from(value: RemoteMap) -> Result<Self, Self::Error> {
         let size = (value.width * value.height) as usize;
-        ensure!(value.attributes.len() == size, MapError::IncorrectSize);
         ensure!(value.layers.len() == MapLayer::count(), MapError::IncorrectLayers);
 
         let mut layers = HashMap::new();
@@ -332,7 +363,7 @@ impl TryFrom<RemoteMap> for Map {
             width: value.width,
             height: value.height,
             layers, 
-            attributes: value.attributes.map(|&t| t.into()),
+            attributes: value.attributes.into_iter().map(Into::into).collect(),
         };
 
         map.update_autotiles();
@@ -351,20 +382,10 @@ impl From<RemoteTile> for Tile {
     }
 }
 
-impl From<RemoteAttribute> for TileAttribute {
-    fn from(attribute: RemoteAttribute) -> Self {
-        match attribute {
-            RemoteAttribute::None => TileAttribute::None,
-            RemoteAttribute::Blocked => TileAttribute::Blocked,
-        }
-    }
-}
-
 // Note: It is considered an unrecoverable error to have a map that has an invalid size
 impl From<Map> for RemoteMap {
     fn from(value: Map) -> Self {
         let size = (value.width * value.height) as usize;
-        assert_eq!(value.attributes.len(), size);
         assert_eq!(value.layers.len(), MapLayer::count());
 
         let mut layers = HashMap::new();
@@ -377,7 +398,7 @@ impl From<Map> for RemoteMap {
             width: value.width,
             height: value.height,
             layers, 
-            attributes: value.attributes.map(|&t| t.into()),
+            attributes: value.attributes.into_iter().map(Into::into).collect(),
         }
     }
 }
@@ -392,11 +413,21 @@ impl From<Tile> for RemoteTile {
     }
 }
 
-impl From<TileAttribute> for RemoteAttribute {
-    fn from(attribute: TileAttribute) -> Self {
-        match attribute {
-            TileAttribute::None => RemoteAttribute::None,
-            TileAttribute::Blocked => RemoteAttribute::Blocked,
+impl From<RemoteAttribute> for AttributeRect {
+    fn from(other: RemoteAttribute) -> Self {
+        Self {
+            position: Rect::new(other.position.x, other.position.y, other.size.x, other.size.y),
+            data: other.data,
+        }
+    }
+}
+
+impl From<AttributeRect> for RemoteAttribute {
+    fn from(other: AttributeRect) -> Self {
+        Self {
+            position: Point2 { x: other.position.x, y: other.position.y },
+            size: Vector2 { x: other.position.w, y: other.position.h },
+            data: other.data
         }
     }
 }

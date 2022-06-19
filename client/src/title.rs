@@ -1,7 +1,7 @@
 use std::{fs, path::PathBuf};
 
 use macroquad::prelude::*;
-use common::network::ClientMessage;
+use onyx_common::network::ClientMessage;
 use serde::{Serialize, Deserialize};
 
 use crate::{networking::{NetworkClient, NetworkStatus}, assets::Assets, game::SPRITE_SIZE};
@@ -115,7 +115,7 @@ pub async fn title_screen(assets: Assets) -> NetworkClient {
                 .and_then(|bytes| fs::write("./settings.bin", bytes).ok())
                 .is_some();
 
-            if written {
+            if !written {
                 println!("Couldn't write settings, just fyi");
             }
 

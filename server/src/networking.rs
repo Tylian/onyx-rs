@@ -2,7 +2,8 @@ use std::{sync::mpsc::{self, Receiver, Sender}};
 use std::thread;
 
 use bimap::BiHashMap;
-use common::network::*;
+use onyx_common::network::*;
+use log::info;
 use message_io::network::{Transport, ToRemoteAddr, Endpoint};
 use message_io::node::{self, StoredNetEvent};
 
@@ -82,7 +83,7 @@ impl Networking {
             handler.network()
                 .listen(Transport::FramedTcp, addr.clone()).unwrap();
             
-            println!("Listening on {}", addr);
+            info!("Listening on {}", addr);
 
             let (_task, mut receive) = listener.enqueue();
 
@@ -131,7 +132,7 @@ impl Networking {
                             clients.insert(endpoint, client_id);
                             let signal = NetworkSignal::Connected(client_id);
                             tx.send(signal).unwrap();
-                            println!("Client ({}) connected (total clients: {})", endpoint.addr(), clients.len());
+                            info!("Client ({}) connected (total clients: {})", endpoint.addr(), clients.len());
                         },
                         StoredNetEvent::Message(endpoint, bytes) => {
                             let message = bincode::deserialize(&bytes).unwrap();
@@ -144,7 +145,7 @@ impl Networking {
                             let signal = NetworkSignal::Disconnected(*client_id);
                             tx.send(signal).unwrap();
                             clients.remove_by_left(&endpoint);
-                            println!("Client ({}) disconnected (total clients: {})", endpoint.addr(), clients.len());
+                            info!("Client ({}) disconnected (total clients: {})", endpoint.addr(), clients.len());
                         }
                     }
                 }

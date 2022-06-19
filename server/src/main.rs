@@ -1,8 +1,9 @@
-#![warn(clippy::pedantic)]
 use std::{sync::RwLock, collections::HashMap, fs};
 
-use common::network::*;
+use onyx_common::network::*;
 use glam::*;
+use log::{debug, error};
+use anyhow::{anyhow, Result};
 
 use crate::networking::{Networking, NetworkSignal, Message};
 
@@ -12,7 +13,8 @@ mod networking;
 struct ClientData {
     name: String,
     sprite: u32,
-    position: Vec2
+    position: Vec2,
+    map: String
 }
 
 impl From<ClientData> for PlayerData {
@@ -29,23 +31,21 @@ struct GameServer {
     network: RwLock<Networking>,
     network_queue: Vec<Message>,
     data: HashMap<ClientId, Option<ClientData>>,
-    map: RemoteMap,
+    maps: HashMap<String, RemoteMap>,
 }
 
 impl GameServer {
-    pub fn new() -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn new() -> Result<Self> {
         let mut network = Networking::new();
         network.listen("0.0.0.0:3042");
 
-        let map = fs::read("./data/map1.bin")
-            .ok().and_then(|bytes| bincode::deserialize(&bytes).ok())
-            .unwrap_or_else(|| RemoteMap::new(50, 50));
+        let maps = Self::load_maps()?;
 
         Ok(Self {
             network: RwLock::new(network),
             network_queue: Vec::new(),
             data: HashMap::new(),
-            map
+            maps
         })
     }   
 
@@ -53,9 +53,31 @@ impl GameServer {
         self.game_loop();
     }
 
-    pub fn save_map(&self) {
-        let bytes = bincode::serialize(&self.map).expect("Couldn't save map rip");
-        fs::write("./data/map1.bin", bytes).expect("Couldn't write map rip");
+    pub fn load_maps() -> Result<HashMap<String, RemoteMap>> {
+        let mut maps = HashMap::new();
+        for entry in fs::read_dir("./data/maps")? {
+            let entry = entry?;
+            let path = entry.path();
+            if path.is_file() {
+                let bytes = fs::read(&path)?;
+                let map = bincode::deserialize(&bytes)?;
+
+                let name = path.file_stem().ok_or_else(|| anyhow!("could not get file stem"))?;
+                maps.insert(String::from(name.to_string_lossy()), map);
+            }
+        }
+
+        // ensure there's a "start" map
+        maps.entry("start".to_owned()).or_insert_with(|| RemoteMap::new(20, 15));
+        Ok(maps)
+    }
+
+    pub fn save_map(&self, name: &str) -> anyhow::Result<()> {
+        let map = self.maps.get(name).ok_or_else(|| anyhow!("map doesn't exist"))?;
+        let bytes = bincode::serialize(&map)?;
+        debug!("saving map {name}: {} bytes", bytes.len());
+        fs::write(format!("./data/maps/{name}.bin"), bytes)?;
+        Ok(())
     }
 
     fn handle_connect(&mut self, client_id: ClientId) {
@@ -71,21 +93,25 @@ impl GameServer {
     }
 
     fn handle_message(&mut self, client_id: ClientId, message: ClientMessage) {
-        println!("{:?}: {:?}", client_id, message);
+        debug!("{:?}: {:?}", client_id, message);
         match message {
             ClientMessage::Hello(name, sprite) => {
                 let client_data = ClientData {
                     name,
                     sprite,
                     position: glam::vec2(10. * 48., 7. * 48.),
+                    map: String::from("start"),
                 };
 
                 // Send them their ID
                 self.queue(Message::to(client_id, ServerMessage::Hello(client_id)));
 
                 // Send them the map
-                let packet = ServerMessage::ChangeMap(self.map.clone());
-                self.queue(Message::to(client_id, packet));
+                let map = self.maps
+                    .entry(client_data.map.clone())
+                    .or_insert_with(|| RemoteMap::new(20, 15))
+                    .clone();
+                self.queue(Message::to(client_id, ServerMessage::ChangeMap(map)));
 
                 // Tell everyone else they joined
                 self.queue(Message::everyone(ServerMessage::PlayerJoined(
@@ -102,7 +128,7 @@ impl GameServer {
                 self.queue_all(&packets);
 
                 // Send welcome message
-                self.queue(Message::to(client_id, ServerMessage::Message(ChatMessage::Server("Welcome to Game!".to_owned()))));
+                self.queue(Message::to(client_id, ServerMessage::Message(ChatMessage::Server("Welcome to Game™!".to_owned()))));
 
                 // Send join message
                 let welcome = ServerMessage::Message(ChatMessage::Server(format!("{} has joined the game.", &client_data.name)));
@@ -124,14 +150,22 @@ impl GameServer {
                 self.queue(Message::everyone(packet));
             },
             ClientMessage::RequestMap => {
-                let packet = ServerMessage::ChangeMap(self.map.clone());
-                self.queue(Message::to(client_id, packet));
+                if let Some(data) = self.data.get(&client_id).unwrap() {
+                    let map = self.maps.entry(data.map.clone())
+                        .or_insert_with(|| RemoteMap::new(20, 15));
+                    let packet = ServerMessage::ChangeMap(map.clone());
+                    self.queue(Message::to(client_id, packet));
+                }
             },
             ClientMessage::SaveMap(remote) => {
-                self.map = remote;
-                self.save_map();
-                let packet = ServerMessage::ChangeMap(self.map.clone());
-                self.queue(Message::everyone(packet));
+                if let Some(data) = self.data.get(&client_id).unwrap() {
+                    self.maps.insert(data.map.clone(), remote.clone());
+                    if let Err(e) = self.save_map(&data.map) {
+                        error!("Couldn't save map {e}");
+                    }
+                    let packet = ServerMessage::ChangeMap(remote);
+                    self.queue(Message::everyone(packet));
+                }
             },
             ClientMessage::Move { position, direction, velocity } => {
                 // todo server side movement tracking
@@ -188,7 +222,13 @@ impl GameServer {
     }
 }
 
-fn main() {
-    let game_server = GameServer::new().unwrap();
+fn main() -> anyhow::Result<()> {
+    let env = env_logger::Env::default()
+        .filter_or(env_logger::DEFAULT_FILTER_ENV, if cfg!(debug_assertions) { "debug" } else { "info" });
+    env_logger::init_from_env(env);
+
+    let game_server = GameServer::new()?;
     game_server.run();
+
+    Ok(())
 }

@@ -2,7 +2,7 @@ use std::thread;
 use std::collections::VecDeque;
 use std::sync::{atomic::{AtomicBool, Ordering}, Arc, RwLock};
 
-use common::network::{ServerMessage, ClientMessage};
+use onyx_common::network::{ServerMessage, ClientMessage};
 use message_io::network::{ToRemoteAddr, Transport};
 use message_io::node::{self, StoredNetEvent};
 

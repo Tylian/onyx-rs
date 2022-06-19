@@ -1,5 +1,4 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
-#![warn(clippy::pedantic)]
 
 use macroquad::window::Conf;
 
@@ -25,6 +24,10 @@ fn window_conf() -> Conf {
 
 #[macroquad::main(window_conf)]
 async fn main() {
+    let env = env_logger::Env::default()
+        .filter_or(env_logger::DEFAULT_FILTER_ENV, if cfg!(debug_assertions) { "debug" } else { "info" });
+    env_logger::init_from_env(env);
+
     let mut assets = Assets::load().await
         .expect("Could not load assets");
 

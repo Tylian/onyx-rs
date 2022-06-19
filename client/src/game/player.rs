@@ -1,4 +1,4 @@
-use common::network::{ClientId, Direction, PlayerData};
+use onyx_common::network::{ClientId, Direction, PlayerData};
 use macroquad::prelude::*;
 
 use crate::assets::Assets;
@@ -8,7 +8,6 @@ use super::SPRITE_SIZE;
 pub enum Animation {
     Standing,
     Walking {
-
         start: f64,
         // speed in pixels per second
         speed: f64
