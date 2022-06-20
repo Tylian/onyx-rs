@@ -1,6 +1,7 @@
 use egui::*;
 use glam::{ivec2};
 use onyx_common::{SPRITE_SIZE, network::{TileAnimation, MapLayer, AreaData}, TILE_SIZE};
+use strum::IntoEnumIterator;
 
 use crate::{utils::ping_pong, map::Tile, assets::Assets};
 

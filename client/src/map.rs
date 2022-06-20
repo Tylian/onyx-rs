@@ -4,6 +4,7 @@ use onyx_common::TILE_SIZE;
 use onyx_common::network::{MapLayer, AreaData, TileAnimation};
 use macroquad::prelude::*;
 use ndarray::{Array2, Zip, indices, azip};
+use strum::{IntoEnumIterator, EnumCount};
 
 use crate::assets::Assets;
 use crate::utils::ping_pong;
@@ -362,8 +363,8 @@ impl Map {
 
     pub fn resize(&self, width: u32, height: u32) -> Map {
         let dimensions = (width as usize, height as usize);
-        let mut layers = HashMap::with_capacity(MapLayer::count());
-        let mut autotiles = HashMap::with_capacity(MapLayer::count());
+        let mut layers = HashMap::with_capacity(MapLayer::COUNT);
+        let mut autotiles = HashMap::with_capacity(MapLayer::COUNT);
         
         for layer in MapLayer::iter() {
             let tiles = Zip::from(indices(dimensions)).map_collect(|index| {

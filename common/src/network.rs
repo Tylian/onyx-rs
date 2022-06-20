@@ -1,10 +1,9 @@
 use std::{collections::HashMap, fmt::Display};
 
-use serde::{Serialize, Deserialize};
-use enum_iterator::Sequence;
-use ndarray::Array2;
-
 use mint::{Point2, Vector2};
+use ndarray::Array2;
+use serde::{Serialize, Deserialize};
+use strum::{EnumCount, EnumIter, IntoEnumIterator};
 
 #[derive(Serialize, Deserialize, PartialEq, Debug, Eq, Hash, Clone, Copy)]
 #[serde(transparent)]
@@ -95,23 +94,13 @@ pub enum ChatMessage {
     Say(String)
 }
 
-#[derive(Copy, Clone, Serialize, Deserialize, PartialEq, Debug, Eq, Hash, Sequence)]
+#[derive(Copy, Clone, Serialize, Deserialize, PartialEq, Debug, Eq, Hash, EnumCount, EnumIter)]
 pub enum MapLayer {
     Ground,
     Mask,
     Mask2,
     Fringe,
     Fringe2
-}
-
-impl MapLayer {
-    pub fn iter() -> impl Iterator<Item = MapLayer> {
-        enum_iterator::all::<Self>()
-    }
-
-    pub fn count() -> usize {
-        enum_iterator::cardinality::<Self>()
-    }
 }
 
 impl Display for MapLayer {

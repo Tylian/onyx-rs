@@ -22,3 +22,4 @@ ndarray = { version = "0.15.4", features = ["serde"] }
 onyx-common = { path = "../common" }
 serde = "1.0.137"
 thiserror = "1.0.31"
+strum = "0.24.1"

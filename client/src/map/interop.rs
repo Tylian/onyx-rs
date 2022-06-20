@@ -4,6 +4,7 @@ use onyx_common::network::{MapLayer, Map as NetworkMap, Tile as NetworkTile, Are
 use macroquad::prelude::*;
 use mint::{Vector2, Point2};
 use ndarray::Array2;
+use strum::EnumCount;
 use thiserror::Error;
 
 use crate::map::Map;
@@ -24,7 +25,7 @@ impl TryFrom<NetworkMap> for Map {
 
     fn try_from(value: NetworkMap) -> Result<Self, Self::Error> {
         let size = (value.width * value.height) as usize;
-        ensure!(value.layers.len() == MapLayer::count(), MapError::IncorrectLayers);
+        ensure!(value.layers.len() == MapLayer::COUNT, MapError::IncorrectLayers);
 
         let mut layers = HashMap::new();
         let mut autotiles = HashMap::new();
@@ -51,7 +52,7 @@ impl TryFrom<NetworkMap> for Map {
 impl From<Map> for NetworkMap {
     fn from(value: Map) -> Self {
         let size = (value.width * value.height) as usize;
-        assert_eq!(value.layers.len(), MapLayer::count());
+        assert_eq!(value.layers.len(), MapLayer::COUNT);
 
         let mut layers = HashMap::new();
         for (layer, contents) in value.layers {
