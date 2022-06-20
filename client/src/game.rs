@@ -1,42 +1,27 @@
 use std::collections::HashMap;
 
 use onyx_common::{SPRITE_SIZE, TILE_SIZE, WALK_SPEED, RUN_SPEED};
-use onyx_common::network::{ClientId, ChatMessage, ServerMessage, ClientMessage, Direction, MapLayer, AreaData, TileAnimation};
+use onyx_common::network::{ClientId, ChatMessage, ServerMessage, ClientMessage, Direction, MapLayer, AreaData};
 use macroquad::prelude::*;
-use log::{error, info, debug};
+use log::{error, debug};
 
 use crate::assets::Assets;
 use crate::networking::{NetworkClient, NetworkStatus};
-use crate::map::{Map, Tile, Area, draw_area};
-use crate::ui::{area_radio, tile_selector};
+use crate::map::{Map, Area, draw_area};
+use crate::ui::{ MapEditor, MapEditorWants, MapEditorTab};
 use self::player::{Player, Animation, Tween};
 
 mod player;
 
-#[derive(Eq, PartialEq)]
-enum MapEditor {
-    Closed,
-    Tileset,
-    Areas,
-    Settings,
-}
-
 struct UiState {
+    map_editor: MapEditor,
+    map_editor_shown: bool,
     chat_message: String,
     chat_messages: Vec<ChatMessage>,
-    layer: MapLayer,
-    tile_pos: egui::Pos2,
-    is_autotile: bool,
     last_tile: Option<(MouseButton, IVec2)>,
     drag_start: Option<Vec2>,
-    map_editor: MapEditor,
     block_pointer: bool,
     block_keyboard: bool,
-    map_width: u32,
-    map_height: u32,
-    area: AreaData,
-    animated: bool,
-    tile_animation: TileAnimation,
 }
 
 impl Default for UiState {
@@ -44,38 +29,12 @@ impl Default for UiState {
         Self {
             chat_message: String::new(),
             chat_messages: Vec::new(),
-            layer: MapLayer::Ground,
-            tile_pos: egui::Pos2::default(),
-            is_autotile: false,
             last_tile: None,
-            map_editor: MapEditor::Closed,
+            map_editor: MapEditor::new(),
+            map_editor_shown: false,
             block_pointer: false,
             block_keyboard: false,
-            map_width: 0,
-            map_height: 0,
             drag_start: Option::default(),
-            area: AreaData::Blocked,
-            animated: false,
-            tile_animation: TileAnimation {
-                frames: 2,
-                duration: 1.0,
-                bouncy: false
-            }
-        }
-    }
-}
-
-impl UiState {
-    /// Get the currently selected properties in the map editor as a [Tile] instance
-    fn get_tile(&self) -> Tile {
-        Tile {
-            texture: ivec2(self.tile_pos.x as i32 / TILE_SIZE, self.tile_pos.y as i32 / TILE_SIZE),
-            autotile: self.is_autotile,
-            animation: if self.animated {
-                Some(self.tile_animation)
-            } else {
-                None
-            },
         }
     }
 }
@@ -86,7 +45,7 @@ struct GameState {
     players: HashMap<ClientId, Player>,
     local_player: Option<ClientId>,
     map: Map,
-    ui_state: UiState,
+    ui: UiState,
     start_time: f64,
     time: f64,
     camera: Camera2D,
@@ -101,7 +60,7 @@ impl GameState {
             players: Default::default(),
             local_player: Default::default(),
             map: Map::new(20, 15),
-            ui_state: Default::default(),
+            ui: Default::default(),
             last_movement: Default::default(),
             start_time: get_time(),
             time: get_time(),
@@ -115,11 +74,7 @@ impl GameState {
     }
 
     fn process_message(&mut self, text: String) {
-        if text.starts_with("/mapeditor") {
-            self.ui_state.map_editor = MapEditor::Tileset;
-        } else {
-            self.network.send(ClientMessage::Message(text));
-        }
+        self.network.send(ClientMessage::Message(text));
     }
 
     fn update(&mut self) {
@@ -128,8 +83,8 @@ impl GameState {
         self.update_network();
         egui_macroquad::ui(|ctx| {
             self.update_ui(ctx);
-            self.ui_state.block_pointer = ctx.wants_pointer_input();
-            self.ui_state.block_keyboard = ctx.wants_keyboard_input();
+            self.ui.block_pointer = ctx.wants_pointer_input();
+            self.ui.block_keyboard = ctx.wants_keyboard_input();
         });
         
         self.update_players();
@@ -182,7 +137,7 @@ impl GameState {
                     self.players.remove(&id);
                 },
                 ServerMessage::Message(message) => {
-                    self.ui_state.chat_messages.push(message);
+                    self.ui.chat_messages.push(message);
                 },
                 ServerMessage::ChangeMap(remote) => {
                     match remote.try_into() {
@@ -234,7 +189,7 @@ impl GameState {
                             .auto_shrink([false; 2])
                             .stick_to_bottom()
                             .show(ui, |ui| {
-                                for message in &self.ui_state.chat_messages {
+                                for message in &self.ui.chat_messages {
                                     match message {
                                         ChatMessage::Server(text) => {
                                             ui.colored_label(Color32::YELLOW, format!("[Server] {}", text));
@@ -257,7 +212,7 @@ impl GameState {
                                     ui.colored_label(Color32::WHITE, "Say:");
                                 });
                                 strip.cell(|ui| {
-                                    text = Some(ui.text_edit_singleline(&mut self.ui_state.chat_message));
+                                    text = Some(ui.text_edit_singleline(&mut self.ui.chat_message));
                                 });
                                 strip.cell(|ui| {
                                     button = Some(ui.button("Send"));
@@ -268,7 +223,7 @@ impl GameState {
 
             if let Some((text, button)) = text.zip(button) {
                 if (text.lost_focus() && ui.input().key_pressed(Key::Enter)) || button.clicked() {
-                    let message = std::mem::take(&mut self.ui_state.chat_message);
+                    let message = std::mem::take(&mut self.ui.chat_message);
                     self.process_message(message);
                     text.request_focus();
                 }
@@ -276,151 +231,33 @@ impl GameState {
         });
     }
 
-    fn map_editor(&mut self, ctx: &egui::Context) {
-        use egui::*;
-        
-        Window::new("📝 Map Editor").show(ctx, |ui| {
-            menu::bar(ui, |ui| {
-                ui.menu_button("File", |ui| {
-                    if ui.button("Save").clicked() {
-                        let data = self.map.clone().into();
-                        self.network.send(ClientMessage::SaveMap(data));
-                        self.ui_state.map_editor = MapEditor::Closed;
-                        ui.close_menu();
-                    }
-                    if ui.button("Exit").clicked() {
-                        self.network.send(ClientMessage::RequestMap);
-                        self.ui_state.map_editor = MapEditor::Closed;
-                        ui.close_menu();
-                    }
-                });
-                ui.separator();
-                ui.selectable_value(&mut self.ui_state.map_editor, MapEditor::Tileset, "Tileset");
-                ui.selectable_value(&mut self.ui_state.map_editor, MapEditor::Areas, "Areas");
-                let settings = ui.selectable_value(&mut self.ui_state.map_editor, MapEditor::Settings, "Settings");
-
-                if settings.clicked() {
-                    self.ui_state.map_width = self.map.width;
-                    self.ui_state.map_height = self.map.height;
-                }
-            });
-            ui.separator();
-
-            match self.ui_state.map_editor {
-                MapEditor::Tileset => {
-                    let id = ui.make_persistent_id("mapeditor_settings");
-                    egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, false)
-                        .show_header(ui, |ui| {
-                            ui.horizontal(|ui| {
-                                ui.label("Layer: ");
-                                egui::ComboBox::from_id_source("layer")
-                                    .selected_text(self.ui_state.layer.to_string())
-                                    .show_ui(ui, |ui| {
-                                        for layer in MapLayer::iter() {
-                                            if layer == MapLayer::Fringe {
-                                                ui.separator();
-                                            }
-                                            ui.selectable_value(&mut self.ui_state.layer, layer, layer.to_string());
-                                        }
-                                    }
-                                );
-                                ui.weak("(Press the arrow for more options)");
-                            });
-                        }).body(|ui| {
-                            ui.checkbox(&mut self.ui_state.is_autotile, "Autotile");
-                            ui.checkbox(&mut self.ui_state.animated, "Animated");
-                            ui.add_enabled_ui(self.ui_state.animated, |ui| {
-                                Grid::new("animation settings").num_columns(2).show(ui, |ui| {
-                                    ui.label("Duration:");
-                                    ui.add(DragValue::new(&mut self.ui_state.tile_animation.duration).speed(0.01f64).clamp_range(0f64..=f64::MAX).suffix("s"));
-                                    ui.end_row();
-
-                                    ui.label("Frames:");
-                                    ui.add(DragValue::new(&mut self.ui_state.tile_animation.frames).speed(0.1f64).clamp_range(0f64..=f64::MAX));
-                                    ui.end_row();
-                                });
-                                ui.checkbox(&mut self.ui_state.tile_animation.bouncy, "Bouncy animation (e.g 1-2-3-2)");
-                            });
-                        });
-                        
-                    if let Some(texture) = self.assets.egui.tileset.as_ref() {
-                        tile_selector(ui, texture, &mut self.ui_state.tile_pos, Vec2::new(TILE_SIZE as f32, TILE_SIZE as f32));
-                    };
-                }
-                MapEditor::Areas => { 
-                    ui.horizontal(|ui| {
-                        ui.group(|ui| {
-                            ui.vertical(|ui| {
-                                ui.heading("Area type");
-                                let response = area_radio(ui, matches!(self.ui_state.area, AreaData::Blocked),
-                                    "Blocked", "Entities are blocked from entering this area.");
-                                if response.clicked() {
-                                    self.ui_state.area = AreaData::Blocked;
-                                }
-
-                                let response = area_radio(ui, matches!(self.ui_state.area, AreaData::Log(_)),
-                                    "Log", "Debug area, sends a message when inside.");
-                                if response.clicked() {
-                                    self.ui_state.area = AreaData::Log(Default::default());
-                                }
-
-                            });
-                        });
-
-                        ui.group(|ui| {
-                            ui.vertical(|ui| {
-                                ui.heading("Area data");
-                                Grid::new("area data").num_columns(2).show(ui, |ui| {
-                                    match &mut self.ui_state.area {
-                                        AreaData::Blocked => { ui.label("Blocked has no values"); },
-                                        AreaData::Log(message) => {
-                                            ui.label("Greeting:");
-                                            ui.text_edit_singleline(message);
-                                            ui.end_row();
-                                        },
-                                    }
-                                });
-                            });
-                        });
-                    });
-                    
-                },
-                MapEditor::Settings => {
-                    ui.group(|ui| {
-                        ui.heading("Map size");
-                        Grid::new("resize").num_columns(2).show(ui, |ui| {
-                            ui.label("Width:");
-                            ui.add(DragValue::new(&mut self.ui_state.map_width).clamp_range(0..=u32::MAX).speed(0.05).suffix(" tiles"));
-                            ui.end_row();
-
-                            ui.label("Height:");
-                            ui.add(DragValue::new(&mut self.ui_state.map_height).clamp_range(0..=u32::MAX).speed(0.05).suffix(" tiles"));
-                            ui.end_row();
-
-                            ui.add_enabled_ui(is_key_down(KeyCode::LeftShift), |ui| {
-                                let button = ui.button("Save").on_disabled_hover_ui(|ui| {
-                                    ui.colored_label(Color32::RED, "This will destroy tiles outside of the map and isn't reversable.");
-                                    ui.label("Hold shift to enable the save button.");
-                                });
-                                if button.clicked() {
-                                    self.map = self.map.resize(self.ui_state.map_width, self.ui_state.map_height);
-                                }
-                            });
-                        });
-                    });  
-                },
-
-                // specifically needs to be empty cause for 1 frame after closing it this is shown lol
-                MapEditor::Closed => (),
-            }
-        });
-    }
-
     fn update_ui(&mut self, ctx: &egui::Context) {
+        use egui::*;
         self.chat_window(ctx);
 
-        if self.ui_state.map_editor != MapEditor::Closed {
-            self.map_editor(ctx);
+        if self.ui.map_editor_shown {
+            Window::new("📝 Map Editor").show(ctx, |ui| {
+                match self.ui.map_editor.show(ui, &self.assets).wants() {
+                    MapEditorWants::Nothing => (), // yolo
+                    MapEditorWants::SaveMap => {
+                        let data = self.map.clone().into();
+                        self.network.send(ClientMessage::SaveMap(data));
+                        self.ui.map_editor_shown = false;
+                    }
+                    MapEditorWants::ResizeMap => {
+                        let (width, height) = self.ui.map_editor.map_size();
+                        self.map = self.map.resize(width, height);
+                    }
+                    
+                    MapEditorWants::ReloadMap => {
+                        self.network.send(ClientMessage::RequestMap);
+                        self.ui.map_editor_shown = false;
+                    },
+                    MapEditorWants::GetMapSize => {
+                        self.ui.map_editor.set_map_size(self.map.width, self.map.height);
+                    },
+                }
+            });
         }
 
         /*egui::Window::new("📝 Memory")
@@ -431,7 +268,7 @@ impl GameState {
     }
 
     fn update_input(&mut self) {
-        if !self.ui_state.block_keyboard {
+        if !self.ui.block_keyboard {
             if let Some(player) = self.local_player.and_then(|id| self.players.get_mut(&id)) {
                 let movement = if is_key_down(KeyCode::Up) || is_key_down(KeyCode::W) {
                     Some(Direction::North)
@@ -471,74 +308,78 @@ impl GameState {
     
             // Admin
             if is_key_pressed(KeyCode::F1) {
-                self.ui_state.map_editor = MapEditor::Tileset;
+                self.ui.map_editor_shown = true;
             }
         }
 
-        if !self.ui_state.block_pointer {
+        if !self.ui.block_pointer {
             // Map editor
-            match self.ui_state.map_editor {
-                MapEditor::Tileset => {
-                    let mouse_button = if is_mouse_button_down(MouseButton::Left) {
-                        Some(MouseButton::Left)
-                    } else if is_mouse_button_down(MouseButton::Right) {
-                        Some(MouseButton::Right)
-                    } else {
-                        None
-                    };
-            
-                    if let Some(mouse_button) = mouse_button {
-                        let mouse_position = self.camera.screen_to_world(mouse_position().into()).as_i32();
-                        let tile_position = mouse_position / TILE_SIZE;
-            
-                        let current_tile = (mouse_button, tile_position);
-            
-                        if self.ui_state.last_tile != Some(current_tile) {
-                            match mouse_button {
-                                MouseButton::Left => {
-                                    let tile = self.ui_state.get_tile();
-                                    self.map.set_tile(self.ui_state.layer, tile_position, tile);
-                                },
-                                MouseButton::Right => {
-                                    self.map.clear_tile(self.ui_state.layer, tile_position);
-                                },
-                                _ => (),
-                            };
+            if self.ui.map_editor_shown {
+                match self.ui.map_editor.tab() {
+                    MapEditorTab::Tileset => {
+                        let mouse_button = if is_mouse_button_down(MouseButton::Left) {
+                            Some(MouseButton::Left)
+                        } else if is_mouse_button_down(MouseButton::Right) {
+                            Some(MouseButton::Right)
+                        } else {
+                            None
+                        };
+                
+                        if let Some(mouse_button) = mouse_button {
+                            let mouse_position = self.camera.screen_to_world(mouse_position().into()).as_i32();
+                            let tile_position = mouse_position / TILE_SIZE;
+                
+                            let current_tile = (mouse_button, tile_position);
+                
+                            if self.ui.last_tile != Some(current_tile) {
+                                match mouse_button {
+                                    MouseButton::Left => {
+                                        let layer = self.ui.map_editor.layer();
+                                        let tile = self.ui.map_editor.tile();
+                                        self.map.set_tile(layer, tile_position, tile);
+                                    },
+                                    MouseButton::Right => {
+                                        let layer = self.ui.map_editor.layer();
+                                        self.map.clear_tile(layer, tile_position);
+                                    },
+                                    _ => (),
+                                };
 
-                            self.map.update_autotile_cache();
-                            self.ui_state.last_tile = Some(current_tile);
-                        }
-                    }
-                },
-                MapEditor::Areas => {
-                    let mouse_position = self.camera.screen_to_world(mouse_position().into());
-                    if is_mouse_button_pressed(MouseButton::Right) {
-                        for (i, attrib) in self.map.areas.iter().enumerate().rev() {
-                            if attrib.position.contains(mouse_position) {
-                                self.map.areas.swap_remove(i);
-                                break;
+                                self.map.update_autotile_cache();
+                                self.ui.last_tile = Some(current_tile);
                             }
                         }
-                    }
-                    
-                    let mouse_down = is_mouse_button_down(MouseButton::Left);
-                    if self.ui_state.drag_start.is_some() && !mouse_down {
-                        let drag_start = self.ui_state.drag_start.take().unwrap();
-                        let start = drag_start.min(mouse_position);
-                        let size = (drag_start.max(mouse_position) - start)
-                            .max(vec2(6.0, 6.0)); // assume that 6x6 is the smallest you can make.
+                    },
+                    MapEditorTab::Areas => {
+                        let mouse_position = self.camera.screen_to_world(mouse_position().into());
+                        if is_mouse_button_pressed(MouseButton::Right) {
+                            for (i, attrib) in self.map.areas.iter().enumerate().rev() {
+                                if attrib.position.contains(mouse_position) {
+                                    self.map.areas.swap_remove(i);
+                                    break;
+                                }
+                            }
+                        }
+                        
+                        let mouse_down = is_mouse_button_down(MouseButton::Left);
+                        if self.ui.drag_start.is_some() && !mouse_down {
+                            let drag_start = self.ui.drag_start.take().unwrap();
+                            let start = drag_start.min(mouse_position);
+                            let size = (drag_start.max(mouse_position) - start)
+                                .max(vec2(6.0, 6.0)); // assume that 6x6 is the smallest you can make.
 
-                        let drag_rect = Rect::new(start.x, start.y, size.x, size.y);
+                            let drag_rect = Rect::new(start.x, start.y, size.x, size.y);
 
-                        self.map.areas.push(Area {
-                            position: drag_rect,
-                            data: self.ui_state.area.clone(),
-                        });
-                    } else if self.ui_state.drag_start.is_none() && mouse_down {
-                        self.ui_state.drag_start = Some(mouse_position);
-                    };
-                },
-                _ => (),
+                            self.map.areas.push(Area {
+                                position: drag_rect,
+                                data: self.ui.map_editor.area_data().clone(),
+                            });
+                        } else if self.ui.drag_start.is_none() && mouse_down {
+                            self.ui.drag_start = Some(mouse_position);
+                        };
+                    },
+                    MapEditorTab::Settings => ()
+                }
             }
         }
     }
@@ -588,16 +429,16 @@ impl GameState {
         self.map.draw_layer(MapLayer::Fringe, self.time, &self.assets);
         self.map.draw_layer(MapLayer::Fringe2, self.time, &self.assets);
 
-        if self.ui_state.map_editor != MapEditor::Closed {
+        if self.ui.map_editor_shown {
             self.map.draw_areas(&self.assets);
-            if let Some(drag_start) = self.ui_state.drag_start {
+            if let Some(drag_start) = self.ui.drag_start {
                 let mouse = self.camera.screen_to_world(mouse_position().into());
                 let start = drag_start.min(mouse);
                 let end = drag_start.max(mouse);
                 let size = end - start;
 
                 let drag_rect = Rect::new(start.x, start.y, size.x, size.y);
-                draw_area(drag_rect, &self.ui_state.area, &self.assets);
+                draw_area(drag_rect, self.ui.map_editor.area_data(), &self.assets);
             }
         }
     }
