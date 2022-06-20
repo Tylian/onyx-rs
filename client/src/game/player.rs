@@ -1,7 +1,7 @@
 use onyx_common::network::{ClientId, Direction, PlayerData};
 use macroquad::prelude::*;
 
-use crate::{assets::Assets, draw_text_shadow};
+use crate::{assets::Assets, utils::draw_text_shadow};
 
 use super::SPRITE_SIZE;
 

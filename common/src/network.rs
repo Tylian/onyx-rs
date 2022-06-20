@@ -155,7 +155,24 @@ impl Map {
 pub struct Tile {
     pub texture: Point2<i32>,
     pub autotile: bool,
-    pub animation_frames: u8,
+    pub animation: Option<TileAnimation>,
+}
+
+#[derive(Copy, Clone, Serialize, Deserialize, PartialEq, Debug, Default)]
+pub struct TileAnimation {
+    pub frames: u16,
+    pub duration: f64,
+    pub bouncy: bool
+}
+
+impl TileAnimation {
+    pub fn total_frames(&self) -> u16 {
+        if self.bouncy {
+            self.frames * 2 - 1
+        } else {
+            self.frames
+        }
+    }
 }
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Debug)]

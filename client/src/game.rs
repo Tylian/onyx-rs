@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use onyx_common::{SPRITE_SIZE, TILE_SIZE, WALK_SPEED, RUN_SPEED};
-use onyx_common::network::{ClientId, ChatMessage, ServerMessage, ClientMessage, Direction, MapLayer, AreaData};
+use onyx_common::network::{ClientId, ChatMessage, ServerMessage, ClientMessage, Direction, MapLayer, AreaData, TileAnimation};
 use macroquad::prelude::*;
 use log::{error, info, debug};
 
@@ -35,6 +35,8 @@ struct UiState {
     map_width: u32,
     map_height: u32,
     area: AreaData,
+    animated: bool,
+    tile_animation: TileAnimation,
 }
 
 impl Default for UiState {
@@ -53,13 +55,28 @@ impl Default for UiState {
             map_height: 0,
             drag_start: Option::default(),
             area: AreaData::Blocked,
+            animated: false,
+            tile_animation: TileAnimation {
+                frames: 2,
+                duration: 1.0,
+                bouncy: false
+            }
         }
     }
 }
 
 impl UiState {
-    fn tile_pos(&self) -> IVec2 {
-        ivec2(self.tile_pos.x as i32 / TILE_SIZE, self.tile_pos.y as i32 / TILE_SIZE)
+    /// Get the currently selected properties in the map editor as a [Tile] instance
+    fn get_tile(&self) -> Tile {
+        Tile {
+            texture: ivec2(self.tile_pos.x as i32 / TILE_SIZE, self.tile_pos.y as i32 / TILE_SIZE),
+            autotile: self.is_autotile,
+            animation: if self.animated {
+                Some(self.tile_animation)
+            } else {
+                None
+            },
+        }
     }
 }
 
@@ -291,23 +308,41 @@ impl GameState {
 
             match self.ui_state.map_editor {
                 MapEditor::Tileset => {
-                    ui.horizontal(|ui| {
-                        ui.label("Layer:");
-                        egui::ComboBox::from_id_source("layer")
-                            .selected_text(self.ui_state.layer.to_string())
-                            .show_ui(ui, |ui| {
-                                for layer in MapLayer::iter() {
-                                    if layer == MapLayer::Fringe {
-                                        ui.separator();
+                    let id = ui.make_persistent_id("mapeditor_settings");
+                    egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, false)
+                        .show_header(ui, |ui| {
+                            ui.horizontal(|ui| {
+                                ui.label("Layer: ");
+                                egui::ComboBox::from_id_source("layer")
+                                    .selected_text(self.ui_state.layer.to_string())
+                                    .show_ui(ui, |ui| {
+                                        for layer in MapLayer::iter() {
+                                            if layer == MapLayer::Fringe {
+                                                ui.separator();
+                                            }
+                                            ui.selectable_value(&mut self.ui_state.layer, layer, layer.to_string());
+                                        }
                                     }
-                                    ui.selectable_value(&mut self.ui_state.layer, layer, layer.to_string());
-                                }
-                            }
-                        );
-                        ui.separator();
-                        ui.checkbox(&mut self.ui_state.is_autotile, "Autotile?");
-                    });
-                    ui.separator();
+                                );
+                                ui.weak("(Press the arrow for more options)");
+                            });
+                        }).body(|ui| {
+                            ui.checkbox(&mut self.ui_state.is_autotile, "Autotile");
+                            ui.checkbox(&mut self.ui_state.animated, "Animated");
+                            ui.add_enabled_ui(self.ui_state.animated, |ui| {
+                                Grid::new("animation settings").num_columns(2).show(ui, |ui| {
+                                    ui.label("Duration:");
+                                    ui.add(DragValue::new(&mut self.ui_state.tile_animation.duration).speed(0.01f64).clamp_range(0f64..=f64::MAX).suffix("s"));
+                                    ui.end_row();
+
+                                    ui.label("Frames:");
+                                    ui.add(DragValue::new(&mut self.ui_state.tile_animation.frames).speed(0.1f64).clamp_range(0f64..=f64::MAX));
+                                    ui.end_row();
+                                });
+                                ui.checkbox(&mut self.ui_state.tile_animation.bouncy, "Bouncy animation (e.g 1-2-3-2)");
+                            });
+                        });
+                        
                     if let Some(texture) = self.assets.egui.tileset.as_ref() {
                         tile_selector(ui, texture, &mut self.ui_state.tile_pos, Vec2::new(TILE_SIZE as f32, TILE_SIZE as f32));
                     };
@@ -335,7 +370,7 @@ impl GameState {
                         ui.group(|ui| {
                             ui.vertical(|ui| {
                                 ui.heading("Area data");
-                                Grid::new("resize").num_columns(2).show(ui, |ui| {
+                                Grid::new("area data").num_columns(2).show(ui, |ui| {
                                     match &mut self.ui_state.area {
                                         AreaData::Blocked => { ui.label("Blocked has no values"); },
                                         AreaData::Log(message) => {
@@ -461,11 +496,8 @@ impl GameState {
                         if self.ui_state.last_tile != Some(current_tile) {
                             match mouse_button {
                                 MouseButton::Left => {
-                                    self.map.set_tile(self.ui_state.layer, tile_position, Tile {
-                                        texture: self.ui_state.tile_pos(),
-                                        autotile: self.ui_state.is_autotile,
-                                        animation_frames: 0,
-                                    });
+                                    let tile = self.ui_state.get_tile();
+                                    self.map.set_tile(self.ui_state.layer, tile_position, tile);
                                 },
                                 MouseButton::Right => {
                                     self.map.clear_tile(self.ui_state.layer, tile_position);

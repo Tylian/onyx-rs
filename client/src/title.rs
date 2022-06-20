@@ -1,10 +1,14 @@
 use std::{fs, path::PathBuf};
 
 use macroquad::prelude::*;
-use onyx_common::{network::ClientMessage, SPRITE_SIZE};
+use onyx_common::{network::ClientMessage};
 use serde::{Serialize, Deserialize};
 
-use crate::{networking::{NetworkClient, NetworkStatus}, assets::Assets};
+use crate::{
+    networking::{NetworkClient, NetworkStatus},
+    assets::Assets,
+    ui::sprite_preview
+};
 
 #[derive(Serialize, Deserialize)]
 struct Settings {
@@ -50,20 +54,10 @@ fn draw_ui(ctx: &egui::Context, state: &mut UiState, assets: &Assets) {
                 ui.label("Sprite:");
                 ui.horizontal_centered(|ui| {
                     ui.add(DragValue::new(&mut state.settings.sprite).clamp_range(0u32..=55u32).speed(0.1));
-                    let texture = assets.egui.sprites.as_ref().unwrap();
-    
-                    let sprite_x = (state.settings.sprite as f64 % 4.0) * 3.0;
-                    let sprite_y = (state.settings.sprite as f64 / 4.0).floor() * 4.0;
-    
-                    // walk left and right 
-                    let offset_x = (((time / 0.25).floor() % 4.0).floor() - 1.0).abs();
-                    let offset_y = ((time / 4.).floor() % 4.).floor();
-    
-                    let p = vec2((sprite_x + offset_x) as f32 * SPRITE_SIZE as f32, (sprite_y + offset_y) as f32 * SPRITE_SIZE as f32) / texture.size_vec2();
-                    let size = vec2(SPRITE_SIZE as f32, SPRITE_SIZE as f32) / texture.size_vec2();
-                    let sprite = Image::new(texture, (SPRITE_SIZE as f32, SPRITE_SIZE as f32))
-                        .uv(Rect::from_min_size(p.to_pos2(), size));
-                    ui.add(sprite);
+
+                    if let Some(texture) = &assets.egui.sprites {
+                        sprite_preview(ui, texture, time, state.settings.sprite);
+                    }
                 });
                 ui.end_row();
             });

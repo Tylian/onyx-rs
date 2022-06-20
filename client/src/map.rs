@@ -1,14 +1,15 @@
 use std::collections::HashMap;
 
 use onyx_common::TILE_SIZE;
-use onyx_common::network::{MapLayer, Map as NetworkMap, Tile as NetworkTile, Area as NetworkArea, AreaData};
+use onyx_common::network::{MapLayer, AreaData, TileAnimation};
 use macroquad::prelude::*;
-use mint::{Vector2, Point2};
 use ndarray::{Array2, Zip, indices, azip};
-use thiserror::Error;
 
 use crate::assets::Assets;
-use crate::{ensure, draw_text_shadow};
+use crate::utils::ping_pong;
+use crate::{utils::draw_text_shadow};
+
+mod interop;
 
 const OFFSETS: &[(i32, i32)] = &[
     (0, -1), (1, 0), (0, 1), (-1, 0),
@@ -89,14 +90,24 @@ pub struct Tile {
     pub texture: IVec2,
     pub autotile: bool,
     // just for my sanity, both 0 and 1 animation frames means it's not animated
-    pub animation_frames: u8,
+    pub animation: Option<TileAnimation>
 }
 
 impl Tile {
     pub fn draw(&self, position: Vec2, time: f64, assets: &Assets) {
-        let uv = self.texture * TILE_SIZE;
-        let source = Rect::new(uv.x as f32, uv.y as f32, TILE_SIZE as f32, TILE_SIZE as f32);
+        let mut uv = self.texture * TILE_SIZE;
+        
+        if let Some(animation) = self.animation {
+            let t = (time % animation.duration) / animation.duration;
 
+            if animation.bouncy {
+                uv.x += ping_pong(t, animation.frames) as i32 * TILE_SIZE;
+            } else {
+                uv.x += (t * animation.frames as f64) as i32 * TILE_SIZE;
+            }
+        }
+
+        let source = Rect::new(uv.x as f32, uv.y as f32, TILE_SIZE as f32, TILE_SIZE as f32);
         draw_texture_ex(
             assets.tileset,
             position.x,
@@ -127,32 +138,42 @@ impl AutoTile {
             ]
         }
     }
-    pub fn draw(&self, position: Vec2, time: f64, assets: &Assets) {
+    pub fn draw(&self, position: Vec2, animation: Option<TileAnimation>, time: f64, assets: &Assets) {
         const A: (f32, f32) = (0.0, 0.0);
         const B: (f32, f32) = (24.0, 0.0);
         const C: (f32, f32) = (0.0, 24.0);
         const D: (f32, f32) = (24.0, 24.0);
 
-        self.draw_subtile(position + A.into(), self.cache[0], time, assets);
-        self.draw_subtile(position + B.into(), self.cache[1], time, assets);
-        self.draw_subtile(position + C.into(), self.cache[2], time, assets);
-        self.draw_subtile(position + D.into(), self.cache[3], time, assets);
-    }
+        let draw_subtile = |position: Vec2, uv: IVec2| {
+            let mut uv = uv * TILE_SIZE / 2;
 
-    fn draw_subtile(&self, position: Vec2, uv: IVec2, time: f64, assets: &Assets) {
-        let uv = uv * 24;
-        let source = Rect::new(uv.x as f32, uv.y as f32, 24.0, 24.0);
+            if let Some(animation) = animation {
+                let t = (time % animation.duration) / animation.duration;
 
-        draw_texture_ex(
-            assets.tileset,
-            position.x,
-            position.y,
-            WHITE,
-            DrawTextureParams {
-                source: Some(source),
-                ..Default::default()
+                if animation.bouncy {
+                    uv.x += ping_pong(t, animation.frames) as i32 * (TILE_SIZE * 2);
+                } else {
+                    uv.x += (t * animation.frames as f64) as i32 * (TILE_SIZE * 2);
+                }
             }
-        );
+
+            let source = Rect::new(uv.x as f32, uv.y as f32, 24.0, 24.0);
+            draw_texture_ex(
+                assets.tileset,
+                position.x,
+                position.y,
+                WHITE,
+                DrawTextureParams {
+                    source: Some(source),
+                    ..Default::default()
+                }
+            );
+        };
+
+        draw_subtile(position + A.into(), self.cache[0]);
+        draw_subtile(position + B.into(), self.cache[1]);
+        draw_subtile(position + C.into(), self.cache[2]);
+        draw_subtile(position + D.into(), self.cache[3]);
     }
 }
 
@@ -283,7 +304,7 @@ impl Map {
             let position = ivec2(x as i32, y as i32);
             let screen_position = position.as_f32() * TILE_SIZE as f32;
             if let Some(autotile) = autotile {
-                autotile.draw(screen_position, time, assets);
+                autotile.draw(screen_position, tile.and_then(|t| t.animation), time, assets);
             } else if let Some(tile) = tile {
                 tile.draw(screen_position, time, assets);
             }
@@ -362,101 +383,5 @@ impl Map {
         let mut map = Map { width, height, layers, autotiles, areas: attributes };
         map.update_autotile_cache();
         map
-    }
-}
-
-#[derive(Debug, Error)]
-pub enum MapError {
-    #[error("size is incorrect")]
-    IncorrectSize,
-    #[error("the number of layers is incorrect")]
-    IncorrectLayers,
-}
-
-impl TryFrom<NetworkMap> for Map {
-    type Error = MapError;
-
-    fn try_from(value: NetworkMap) -> Result<Self, Self::Error> {
-        let size = (value.width * value.height) as usize;
-        ensure!(value.layers.len() == MapLayer::count(), MapError::IncorrectLayers);
-
-        let mut layers = HashMap::new();
-        let mut autotiles = HashMap::new();
-        for (layer, contents) in value.layers {
-            ensure!(contents.len() == size, MapError::IncorrectSize);
-            layers.insert(layer, contents.map(|t| t.map(Into::into)));
-            autotiles.insert(layer, Array2::default(contents.dim()));
-        }
-
-        let mut map = Self {
-            width: value.width,
-            height: value.height,
-            layers, 
-            autotiles,
-            areas: value.areas.into_iter().map(Into::into).collect(),
-        };
-
-        map.update_autotile_cache();
-        Ok(map)
-    }
-}
-
-// Note: It is considered an unrecoverable error to have a map that has an invalid size
-impl From<Map> for NetworkMap {
-    fn from(value: Map) -> Self {
-        let size = (value.width * value.height) as usize;
-        assert_eq!(value.layers.len(), MapLayer::count());
-
-        let mut layers = HashMap::new();
-        for (layer, contents) in value.layers {
-            assert_eq!(contents.len(), size);
-            layers.insert(layer, contents.map(|t| t.map(Into::into)));
-        }
-
-        Self {
-            width: value.width,
-            height: value.height,
-            layers, 
-            areas: value.areas.into_iter().map(Into::into).collect(),
-        }
-    }
-}
-
-impl From<Tile> for NetworkTile {
-    fn from(tile: Tile) -> Self {
-        Self {
-            texture: tile.texture.into(),
-            autotile: tile.autotile,
-            animation_frames: tile.animation_frames
-        }
-    }
-}
-
-impl From<NetworkTile> for Tile {
-    fn from(tile: NetworkTile) -> Self {
-        Self {
-            texture: tile.texture.into(),
-            autotile: tile.autotile,
-            animation_frames: tile.animation_frames
-        }
-    }
-}
-
-impl From<NetworkArea> for Area {
-    fn from(other: NetworkArea) -> Self {
-        Self {
-            position: Rect::new(other.position.x, other.position.y, other.size.x, other.size.y),
-            data: other.data,
-        }
-    }
-}
-
-impl From<Area> for NetworkArea {
-    fn from(other: Area) -> Self {
-        Self {
-            position: Point2 { x: other.position.x, y: other.position.y },
-            size: Vector2 { x: other.position.w, y: other.position.h },
-            data: other.data
-        }
     }
 }
