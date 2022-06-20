@@ -66,25 +66,12 @@ impl Player {
             direction: Direction::South,
         }
     }
-    // pub fn tween_position(&self, time: f64) -> Vec2 {
-    //     self.tween.as_ref().map_or_else(|| self.position.as_f32(), |tween| {
-    //         let t = (time - tween.start) / (tween.end - tween.start);
-    //         let diff = (self.position - tween.position).as_f32();
 
-    //         tween.position.as_f32() + diff * t as f32
-    //     })
-    // }
-    // pub fn set_tween(&mut self, position: IVec2, start: f64, duration: f64) {
-    //     self.tween = Some(PlayerTween {
-    //         position,
-    //         start,
-    //         end: start + duration,
-    //     });
-    // }
     pub fn draw(&self, time: f64, assets: &Assets) {
         self.draw_text(assets, self.position);
         self.draw_sprite(assets, self.position, time);
     }
+
     pub fn draw_text(&self, assets: &Assets, position: Vec2) {
         const FONT_SIZE: u16 = 16;
         let measurements = measure_text(&self.name, Some(assets.font), FONT_SIZE, 1.0);

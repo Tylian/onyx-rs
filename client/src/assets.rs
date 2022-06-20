@@ -30,7 +30,7 @@ impl Assets {
             egui: EguiTextures::default()
         })
     }
-
+    
     pub fn load_egui(&mut self, ctx: &egui::Context) {
         self.egui.sprites.get_or_insert_with(|| Self::load_egui_texture(ctx, "sprites", self.sprites));
         self.egui.tileset.get_or_insert_with(|| Self::load_egui_texture(ctx, "tileset", self.tileset));
