@@ -1,6 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use macroquad::{window::Conf};
+use macroquad::window::Conf;
 
 use crate::{game::game_screen, title::title_screen, assets::Assets};
 
@@ -25,10 +25,12 @@ fn window_conf() -> Conf {
 
 #[macroquad::main(window_conf)]
 async fn main() {
-    let env = env_logger::Env::default()
-        .filter_or(env_logger::DEFAULT_FILTER_ENV, if cfg!(debug_assertions) { "debug" } else { "info" });
-    env_logger::init_from_env(env);
+    #[cfg(debug_assertions)]
+    simple_logger::init_with_level(log::Level::Debug).unwrap();
 
+    #[cfg(not(debug_assertions))]
+    simple_logger::init_with_level(log::Level::Warn).unwrap();
+    
     let mut assets = Assets::load().await
         .expect("Could not load assets");
 

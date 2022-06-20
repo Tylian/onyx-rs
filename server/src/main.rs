@@ -1,7 +1,6 @@
 use std::{sync::RwLock, collections::HashMap, fs, time::{Instant, Duration}};
 
 use euclid::default::{Rect, Point2D, Vector2D, Size2D};
-use log::{debug, error};
 use anyhow::{anyhow, Result};
 use onyx_common::{network::{PlayerData as NetworkPlayerData, ClientId, Map as NetworkMap, ServerMessage, ChatMessage, ClientMessage, AreaData}, SPRITE_SIZE, TILE_SIZE};
 
@@ -85,7 +84,7 @@ impl GameServer {
     pub fn save_map(&self, name: &str) -> anyhow::Result<()> {
         let map = self.maps.get(name).ok_or_else(|| anyhow!("map doesn't exist"))?;
         let bytes = bincode::serialize(&map)?;
-        debug!("saving map {name}: {} bytes", bytes.len());
+        log::debug!("saving map {name}: {} bytes", bytes.len());
         fs::write(format!("./data/maps/{name}.bin"), bytes)?;
         Ok(())
     }
@@ -103,7 +102,7 @@ impl GameServer {
     }
 
     fn handle_message(&mut self, client_id: ClientId, message: ClientMessage) {
-        debug!("{:?}: {:?}", client_id, message);
+        log::debug!("{:?}: {:?}", client_id, message);
         match message {
             ClientMessage::Hello(name, sprite) => {
                 let player = PlayerData {
@@ -169,7 +168,7 @@ impl GameServer {
                 if let Some(player) = self.players.get(&client_id).unwrap() {
                     self.maps.insert(player.map.clone(), remote.clone());
                     if let Err(e) = self.save_map(&player.map) {
-                        error!("Couldn't save map {e}");
+                        log::error!("Couldn't save map {e}");
                     }
                     let packet = ServerMessage::ChangeMap(remote);
                     self.queue(Message::everyone(packet));
@@ -295,9 +294,11 @@ impl GameServer {
 }
 
 fn main() -> anyhow::Result<()> {
-    let env = env_logger::Env::default()
-        .filter_or(env_logger::DEFAULT_FILTER_ENV, if cfg!(debug_assertions) { "debug" } else { "info" });
-    env_logger::init_from_env(env);
+    #[cfg(debug_assertions)]
+    simple_logger::init_with_level(log::Level::Debug).unwrap();
+
+    #[cfg(not(debug_assertions))]
+    simple_logger::init_with_level(log::Level::Warn).unwrap();
 
     let game_server = GameServer::new()?;
     game_server.run();

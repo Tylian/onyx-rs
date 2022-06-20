@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 
+use glam::{IVec2, Vec2, vec2};
+use macroquad::{color, prelude::*};
 use onyx_common::{SPRITE_SIZE, TILE_SIZE, WALK_SPEED, RUN_SPEED};
 use onyx_common::network::{ClientId, ChatMessage, ServerMessage, ClientMessage, Direction, MapLayer, AreaData};
-use macroquad::prelude::*;
-use log::{error, debug};
 
 use crate::assets::Assets;
 use crate::networking::{NetworkClient, NetworkStatus};
@@ -124,7 +124,7 @@ impl GameState {
 
         let time = self.time;
         while let Some(message) = self.network.try_recv() {
-            debug!("{:?}", message);
+            log::debug!("{:?}", message);
             match message {
                 ServerMessage::Hello(id) => {
                     self.local_player = Some(id);
@@ -142,7 +142,7 @@ impl GameState {
                 ServerMessage::ChangeMap(remote) => {
                     match remote.try_into() {
                         Ok(map) => self.map = map,
-                        Err(err) => error!("Error converting remote map: {err:?}"),
+                        Err(err) => log::error!("Error converting remote map: {err:?}"),
                     };
                 },
                 ServerMessage::PlayerMoved { client_id, position, direction, velocity } => {
@@ -413,10 +413,10 @@ impl GameState {
     }
 
     fn draw(&mut self) {
-        clear_background(BLACK);
+        clear_background(color::BLACK);
 
         let (map_width, map_height) = self.map.pixel_size();
-        draw_rectangle_lines(-3., -3., map_width + 6., map_height + 6., 6., GRAY);
+        draw_rectangle_lines(-3., -3., map_width + 6., map_height + 6., 6., color::GRAY);
 
         self.map.draw_layer(MapLayer::Ground, self.time, &self.assets);
         self.map.draw_layer(MapLayer::Mask, self.time, &self.assets);
