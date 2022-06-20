@@ -1,15 +1,16 @@
-use onyx_common::network::{ClientId, Direction, PlayerData};
+use onyx_common::{network::{ClientId, Direction, PlayerData}, TILE_SIZE};
 use macroquad::prelude::*;
 
-use crate::{assets::Assets, utils::draw_text_shadow};
+use crate::{assets::Assets, utils::{draw_text_shadow, ping_pong}};
 
 use super::SPRITE_SIZE;
 
 pub enum Animation {
     Standing,
     Walking {
+        /// Start time of the animation
         start: f64,
-        // speed in pixels per second
+        /// Movement speed in pixels per second.
         speed: f64
     }
 }
@@ -28,9 +29,8 @@ impl Animation {
                 1.0
             },
             Animation::Walking { start, speed } => {
-                // speed is set so that you take a step every 24 pixels, or half a tile.
-                let t = ((time - start) * speed / 24.) as f32;
-                ((t % 4.0).floor() - 1.).abs()
+                let length = 2.0 * TILE_SIZE as f64 / speed;
+                ping_pong(((time - start) / length) % 1.0, 3) as f32
             },
         };
 
