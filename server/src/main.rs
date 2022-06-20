@@ -157,10 +157,6 @@ impl GameServer {
                     self.queue(Message::everyone(packet));
                 }
             },
-            ClientMessage::ChangeTile { position, layer, tile, is_autotile } => {
-                let packet = ServerMessage::ChangeTile { position, layer, tile, is_autotile };
-                self.queue(Message::everyone(packet));
-            },
             ClientMessage::RequestMap => {
                 if let Some(player) = self.players.get(&client_id).unwrap() {
                     let map = self.maps.entry(player.map.clone())

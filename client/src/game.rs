@@ -167,16 +167,6 @@ impl GameState {
                 ServerMessage::Message(message) => {
                     self.ui_state.chat_messages.push(message);
                 },
-                ServerMessage::ChangeTile { position, layer, tile: uv, is_autotile }  => {
-                    if let Some(tile) = self.map.tile_mut(layer, position.into()) {
-                        *tile = match uv {
-                            Some(uv) if is_autotile => Tile::autotile(uv.into()),
-                            Some(uv) => Tile::basic(uv.into()),
-                            None => Tile::Empty
-                        };
-                        self.map.update_autotiles();
-                    }
-                },
                 ServerMessage::ChangeMap(remote) => {
                     match remote.try_into() {
                         Ok(map) => self.map = map,
@@ -302,20 +292,20 @@ impl GameState {
             match self.ui_state.map_editor {
                 MapEditor::Tileset => {
                     ui.horizontal(|ui| {
-                        egui::ComboBox::from_label("Layer")
-                            .selected_text(format!("{:?}", self.ui_state.layer)) // todo: don't use debug
+                        ui.label("Layer:");
+                        egui::ComboBox::from_id_source("layer")
+                            .selected_text(self.ui_state.layer.to_string())
                             .show_ui(ui, |ui| {
-                                ui.selectable_value(&mut self.ui_state.layer, MapLayer::Ground, "Ground");
-                                ui.selectable_value(&mut self.ui_state.layer, MapLayer::Mask, "Mask");
-                                ui.separator();
-                                ui.selectable_value(&mut self.ui_state.layer, MapLayer::Fringe, "Fringe");
+                                for layer in MapLayer::iter() {
+                                    if layer == MapLayer::Fringe {
+                                        ui.separator();
+                                    }
+                                    ui.selectable_value(&mut self.ui_state.layer, layer, layer.to_string());
+                                }
                             }
                         );
-                        // ui.radio_value(&mut self.ui_state.layer, MapLayer::Ground, "Ground");
-                        // ui.radio_value(&mut self.ui_state.layer, MapLayer::Mask, "Mask");
-                        // ui.radio_value(&mut self.ui_state.layer, MapLayer::Fringe, "Fringe").on_hover_text("Displayed above players & NPCs");
                         ui.separator();
-                        ui.checkbox(&mut self.ui_state.is_autotile, "Is autotile?");
+                        ui.checkbox(&mut self.ui_state.is_autotile, "Autotile?");
                     });
                     ui.separator();
                     if let Some(texture) = self.assets.egui.tileset.as_ref() {
@@ -345,13 +335,16 @@ impl GameState {
                         ui.group(|ui| {
                             ui.vertical(|ui| {
                                 ui.heading("Area data");
-                                match &mut self.ui_state.area {
-                                    AreaData::Blocked => { ui.label("Blocked has no values"); },
-                                    AreaData::Log(message) => {
-                                        ui.label("Message to greet with:");
-                                        ui.text_edit_singleline(message);
-                                    },
-                                }
+                                Grid::new("resize").num_columns(2).show(ui, |ui| {
+                                    match &mut self.ui_state.area {
+                                        AreaData::Blocked => { ui.label("Blocked has no values"); },
+                                        AreaData::Log(message) => {
+                                            ui.label("Greeting:");
+                                            ui.text_edit_singleline(message);
+                                            ui.end_row();
+                                        },
+                                    }
+                                });
                             });
                         });
                     });
@@ -466,16 +459,21 @@ impl GameState {
                         let current_tile = (mouse_button, tile_position);
             
                         if self.ui_state.last_tile != Some(current_tile) {
-                            if let Some(tile) = self.map.tile_mut(self.ui_state.layer, tile_position) {
-                                *tile = match mouse_button {
-                                    MouseButton::Left if self.ui_state.is_autotile => Tile::autotile(self.ui_state.tile_pos()),
-                                    MouseButton::Left => Tile::basic(self.ui_state.tile_pos()),
-                                    MouseButton::Right => Tile::empty(),
-                                    _ => unreachable!()
-                                };
-                                self.map.update_autotiles();
-                            }
-                            
+                            match mouse_button {
+                                MouseButton::Left => {
+                                    self.map.set_tile(self.ui_state.layer, tile_position, Tile {
+                                        texture: self.ui_state.tile_pos(),
+                                        autotile: self.ui_state.is_autotile,
+                                        animation_frames: 0,
+                                    });
+                                },
+                                MouseButton::Right => {
+                                    self.map.clear_tile(self.ui_state.layer, tile_position);
+                                },
+                                _ => (),
+                            };
+
+                            self.map.update_autotile_cache();
                             self.ui_state.last_tile = Some(current_tile);
                         }
                     }
@@ -495,7 +493,8 @@ impl GameState {
                     if self.ui_state.drag_start.is_some() && !mouse_down {
                         let drag_start = self.ui_state.drag_start.take().unwrap();
                         let start = drag_start.min(mouse_position);
-                        let size = drag_start.max(mouse_position) - start;
+                        let size = (drag_start.max(mouse_position) - start)
+                            .max(vec2(6.0, 6.0)); // assume that 6x6 is the smallest you can make.
 
                         let drag_rect = Rect::new(start.x, start.y, size.x, size.y);
 
@@ -546,14 +545,16 @@ impl GameState {
         let (map_width, map_height) = self.map.pixel_size();
         draw_rectangle_lines(-3., -3., map_width + 6., map_height + 6., 6., GRAY);
 
-        self.map.draw_layer(MapLayer::Ground, &self.assets);
-        self.map.draw_layer(MapLayer::Mask, &self.assets);
+        self.map.draw_layer(MapLayer::Ground, self.time, &self.assets);
+        self.map.draw_layer(MapLayer::Mask, self.time, &self.assets);
+        self.map.draw_layer(MapLayer::Mask2, self.time, &self.assets);
 
         for player in self.players.values() {
             player.draw(self.time, &self.assets);
         }
 
-        self.map.draw_layer(MapLayer::Fringe, &self.assets);
+        self.map.draw_layer(MapLayer::Fringe, self.time, &self.assets);
+        self.map.draw_layer(MapLayer::Fringe2, self.time, &self.assets);
 
         if self.ui_state.map_editor != MapEditor::Closed {
             self.map.draw_areas(&self.assets);

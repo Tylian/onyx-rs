@@ -1,7 +1,7 @@
 use onyx_common::network::{ClientId, Direction, PlayerData};
 use macroquad::prelude::*;
 
-use crate::assets::Assets;
+use crate::{assets::Assets, draw_text_shadow};
 
 use super::SPRITE_SIZE;
 
@@ -95,45 +95,13 @@ impl Player {
             -3.0,
         ).into();
 
-        let outlines = &[
-            (1.0, 0.0).into(),
-            (-1.0, 0.0).into(),
-            (0.0, 1.0).into(),
-            (0.0, -1.0).into(),
-            (-1.0, -0.0).into(),
-            (-1.0, 1.0).into(),
-            (1.0, -1.0).into(),
-            (1.0, 1.0).into(),
-        ];
-
         let pos = position + text_offset;
-
-        for outline in outlines {
-            let pos = pos + *outline;
-            draw_text_ex(&self.name, pos.x, pos.y, TextParams {
-                font_size: FONT_SIZE,
-                font: assets.font,
-                color: Color::new(0.0, 0.0, 0.0, 0.5),
-                ..Default::default()
-            });
-        }
-
-        // draw_text_ex(&self.name, pos.x + 1.0, pos.y + 1.0, TextParams {
-        //     font_size: FONT_SIZE as _,
-        //     font: assets.font,
-        //     color: BLACK,
-        //     ..Default::default()
-        // });
-
-        draw_text_ex(&self.name, pos.x, pos.y, TextParams {
-                font_size: FONT_SIZE,
-                font: assets.font,
-                color: WHITE,
-                ..Default::default()
-            },
-        );
-
-        //draw_text(&self.name, pos.x, pos.y, FONT_SIZE, color_u8!(255, 192, 203, 255));
+        draw_text_shadow(&self.name, pos, TextParams {
+            font_size: FONT_SIZE,
+            font: assets.font,
+            color: WHITE,
+            ..Default::default()
+        });
     }
     fn draw_sprite(&self, assets: &Assets, position: Vec2, time: f64) {
         let offset = self.animation.get_animation_offset(time, self.direction);

@@ -4,11 +4,11 @@ use onyx_common::TILE_SIZE;
 use onyx_common::network::{MapLayer, Map as NetworkMap, Tile as NetworkTile, Area as NetworkArea, AreaData};
 use macroquad::prelude::*;
 use mint::{Vector2, Point2};
-use ndarray::Array2;
+use ndarray::{Array2, Zip, indices, azip};
 use thiserror::Error;
 
 use crate::assets::Assets;
-use crate::ensure;
+use crate::{ensure, draw_text_shadow};
 
 const OFFSETS: &[(i32, i32)] = &[
     (0, -1), (1, 0), (0, 1), (-1, 0),
@@ -74,76 +74,27 @@ fn autotile_d(neighbors: u8) -> IVec2 {
     ivec2(x, y)
 }
 
-#[derive(Copy, Clone)]
-pub enum Tile {
-    Empty,
-    Basic(IVec2),
-    Autotile {
-        base: IVec2,
-        cache: [IVec2; 4],
-    }
-}
+// #[derive(Copy, Clone)]
+// pub enum Tile {
+//     Empty,
+//     Basic(IVec2),
+//     Autotile {
+//         base: IVec2,
+//         cache: [IVec2; 4],
+//     }
+// }
 
-impl Default for Tile {
-    fn default() -> Self {
-        Tile::Empty
-    }
+#[derive(Copy, Clone, Debug, Default)]
+pub struct Tile {
+    pub texture: IVec2,
+    pub autotile: bool,
+    // just for my sanity, both 0 and 1 animation frames means it's not animated
+    pub animation_frames: u8,
 }
 
 impl Tile {
-    pub fn empty() -> Self {
-        Self::Empty
-    }
-    pub fn basic(uv: IVec2) -> Self {
-        Self::Basic(uv)
-    }
-    pub fn autotile(uv: IVec2) -> Self {
-        Self::Autotile {
-            base: uv,
-            cache: Default::default()
-        }
-    }
-
-    fn get_uv(&self) -> Option<IVec2> {
-        match *self {
-            Tile::Empty => None,
-            Tile::Basic(uv) => Some(uv),
-            Tile::Autotile { base, .. } => Some(base),
-        }
-    }
-
-    pub fn update_autotile(&mut self, neighbors: u8) {
-        if let Self::Autotile { base, cache } = self {
-            let base = *base * 2;
-            *cache = [
-                base + autotile_a(neighbors),
-                base + autotile_b(neighbors),
-                base + autotile_c(neighbors),
-                base + autotile_d(neighbors),
-            ];
-        } 
-    }
-
-    pub fn draw(&self, position: Vec2, assets: &Assets) {
-        const A: (f32, f32) = (0.0, 0.0);
-        const B: (f32, f32) = (24.0, 0.0);
-        const C: (f32, f32) = (0.0, 24.0);
-        const D: (f32, f32) = (24.0, 24.0);
-
-        match self {
-            Tile::Empty => (),
-            Tile::Basic(uv) => self.draw_tile(position, *uv, assets),
-            Tile::Autotile { cache, .. } => {
-                self.draw_subtile(position + A.into(), cache[0], assets);
-                self.draw_subtile(position + B.into(), cache[1], assets);
-                self.draw_subtile(position + C.into(), cache[2], assets);
-                self.draw_subtile(position + D.into(), cache[3], assets);
-            },
-        }
-    }
-
-    fn draw_tile(&self, position: Vec2, uv: IVec2, assets: &Assets) {
-        let uv = uv * TILE_SIZE;
+    pub fn draw(&self, position: Vec2, time: f64, assets: &Assets) {
+        let uv = self.texture * TILE_SIZE;
         let source = Rect::new(uv.x as f32, uv.y as f32, TILE_SIZE as f32, TILE_SIZE as f32);
 
         draw_texture_ex(
@@ -157,8 +108,38 @@ impl Tile {
             }
         );
     }
+}
 
-    fn draw_subtile(&self, position: Vec2, uv: IVec2, assets: &Assets) {
+#[derive(Clone, Debug, Default)]
+#[repr(transparent)]
+struct AutoTile {
+    cache: [IVec2; 4]
+}
+
+impl AutoTile {
+    pub fn new(base: IVec2, neighbors: u8) -> Self {
+        Self {
+            cache: [
+                base + autotile_a(neighbors),
+                base + autotile_b(neighbors),
+                base + autotile_c(neighbors),
+                base + autotile_d(neighbors)
+            ]
+        }
+    }
+    pub fn draw(&self, position: Vec2, time: f64, assets: &Assets) {
+        const A: (f32, f32) = (0.0, 0.0);
+        const B: (f32, f32) = (24.0, 0.0);
+        const C: (f32, f32) = (0.0, 24.0);
+        const D: (f32, f32) = (24.0, 24.0);
+
+        self.draw_subtile(position + A.into(), self.cache[0], time, assets);
+        self.draw_subtile(position + B.into(), self.cache[1], time, assets);
+        self.draw_subtile(position + C.into(), self.cache[2], time, assets);
+        self.draw_subtile(position + D.into(), self.cache[3], time, assets);
+    }
+
+    fn draw_subtile(&self, position: Vec2, uv: IVec2, time: f64, assets: &Assets) {
         let uv = uv * 24;
         let source = Rect::new(uv.x as f32, uv.y as f32, 24.0, 24.0);
 
@@ -204,11 +185,12 @@ pub fn draw_area(position: Rect, data: &AreaData, assets: &Assets) {
     draw_rectangle_lines(x, y, w, h, 1.0, color);
 
     let bounds = measure_text(&text, Some(assets.font), 16, 1.0);
-    
-    let text_x = x + (w - bounds.width) / 2.0;
-    let text_y = y + (h - bounds.height) / 2.0 + bounds.offset_y;
+    let text_pos = vec2(
+        x + (w - bounds.width) / 2.0,
+        y + (h - bounds.height) / 2.0 + bounds.offset_y
+    );
 
-    draw_text_ex(&text, text_x, text_y, TextParams {
+    draw_text_shadow(&text, text_pos, TextParams {
         font: assets.font,
         font_size: 16,
         color,
@@ -232,22 +214,26 @@ impl Area {
 pub struct Map {
     pub width: u32,
     pub height: u32,
-    layers: HashMap<MapLayer, Array2<Tile>>,
+    layers: HashMap<MapLayer, Array2<Option<Tile>>>,
+    autotiles: HashMap<MapLayer, Array2<Option<AutoTile>>>,
     pub areas: Vec<Area>,
 }
 
 impl Map {
     pub fn new(width: u32, height: u32) -> Self {
         let mut layers = HashMap::new();
+        let mut autotiles = HashMap::new();
 
         for layer in MapLayer::iter() {
             layers.insert(layer, Array2::default((width as usize, height as usize)));
+            autotiles.insert(layer, Array2::default((width as usize, height as usize)));
         }
 
         Self {
             width,
             height,
             layers,
+            autotiles,
             areas: Vec::new(),
         }
     }
@@ -261,25 +247,47 @@ impl Map {
     }
 
     pub fn tile(&self, layer: MapLayer, position: IVec2) -> Option<&Tile> {
-        self.layers[&layer].get((position.x as usize, position.y as usize))
+        self.layers.get(&layer).unwrap()
+            .get((position.x as usize, position.y as usize))
+            .and_then(|inner| inner.as_ref())
     }
 
     pub fn tile_mut(&mut self, layer: MapLayer, position: IVec2) -> Option<&mut Tile> {
-        self.layers.get_mut(&layer).unwrap().get_mut((position.x as usize, position.y as usize))
+        self.layers.get_mut(&layer).unwrap()
+            .get_mut((position.x as usize, position.y as usize))
+            .and_then(|inner| inner.as_mut())
     }
 
-    pub fn tiles(&self, layer: MapLayer) -> impl Iterator<Item = &Tile> {
-        self.layers[&layer].iter()
+    // Sets a tile, returning the previous one if it existed
+    pub fn set_tile(&mut self, layer: MapLayer, position: IVec2, tile: Tile) -> Option<Tile> {
+        self.layers.get_mut(&layer).unwrap()
+            .get_mut((position.x as usize, position.y as usize))
+            .and_then(|inner| inner.replace(tile))
     }
 
-    pub fn draw_layer(&self, layer: MapLayer, assets: &Assets) {
-        for (x, y) in itertools::iproduct!(0..self.width, 0..self.height) {
+    // Clears the tile, returning it if there was one
+    pub fn clear_tile(&mut self, layer: MapLayer, position: IVec2) -> Option<Tile> {
+        self.layers.get_mut(&layer).unwrap()
+            .get_mut((position.x as usize, position.y as usize))
+            .and_then(|tile| tile.take())
+    }
+
+    pub fn tiles(&self, layer: MapLayer) -> impl Iterator<Item = Option<&Tile>> {
+        self.layers[&layer].iter().map(|tile| tile.as_ref())
+    }
+
+    pub fn draw_layer(&self, layer: MapLayer, time: f64, assets: &Assets) {
+        let layers = self.layers.get(&layer).unwrap();
+        let autotiles = self.autotiles.get(&layer).unwrap();
+        azip!((index (x, y), tile in layers, autotile in autotiles) {
             let position = ivec2(x as i32, y as i32);
             let screen_position = position.as_f32() * TILE_SIZE as f32;
-            if let Some(tile) = self.tile(layer, position) {
-                tile.draw(screen_position, assets);
+            if let Some(autotile) = autotile {
+                autotile.draw(screen_position, time, assets);
+            } else if let Some(tile) = tile {
+                tile.draw(screen_position, time, assets);
             }
-        }
+        });
     }
 
     pub fn draw_areas(&self, assets: &Assets) {
@@ -288,67 +296,72 @@ impl Map {
         }
     }
 
-    pub fn update_autotiles(&mut self) {
-        // collecting all the data i need because we can't borrow self in the loop lmao
-        let ground_map = self.layers[&MapLayer::Ground].map(Tile::get_uv);
-        let mask_map= self.layers[&MapLayer::Mask].map(Tile::get_uv);
-        let fringe_map = self.layers[&MapLayer::Fringe].map(Tile::get_uv);
+    pub fn update_autotile_cache(&mut self) {
+        for layer in MapLayer::iter() {
+            let texture_map = self.layers[&layer].map(|tile| match tile {
+                Some(tile) if tile.autotile => Some(tile.texture),
+                _ => None
+            });
 
-        for (x, y) in itertools::iproduct!(0..self.width, 0..self.height) {
-            let position = ivec2(x as i32, y as i32);
-            for layer in MapLayer::iter() {
-                let neighbor_map = match layer {
-                    MapLayer::Ground => &ground_map,
-                    MapLayer::Mask => &mask_map,
-                    MapLayer::Fringe => &fringe_map,
-                };
-
-                if let Some(tile) = self.tile_mut(layer, position) {
-                    let uv = tile.get_uv();
+            let neighbor_map = Zip::indexed(&texture_map).map_collect(|index, texture| {
+                if let &Some(texture) = texture {
+                    let position = IVec2::new(index.0 as i32, index.1 as i32);
                     let mut neighbors = 0;
                     for (i, offset) in OFFSETS.iter().enumerate() {
                         let neighbor = position + IVec2::from(*offset);
-                        let neighbor = neighbor_map.get((neighbor.x as usize, neighbor.y as usize));
+                        let neighbor = texture_map.get((neighbor.x as usize, neighbor.y as usize));
 
                         if let Some(neighbor) = neighbor {
-                            match uv.zip(neighbor.as_ref()) {
-                                Some((a, &b)) if a == b => { neighbors |= 1 << i; },
+                            match (texture, *neighbor) {
+                                (a, Some(b)) if a == b => { neighbors |= 1 << i; },
                                 _ => ()
                             }
-                        } else { // Auto-tiles look better when out of map tiles are assumed to be the same
+                        } else {
+                            // Auto-tiles look better when out of map tiles are assumed to be the same
                             neighbors |= 1 << i;
                         }
                     }
-                    tile.update_autotile(neighbors);
+
+                    Some((texture, neighbors))
+                } else {
+                    None
                 }
-            }
-            
+            });
+
+            let autotile_cache = neighbor_map.map(|info| {
+                info.map(|(texture, neighbors)| {
+                    let base = texture * 2;
+                    AutoTile::new(base, neighbors)
+                })
+            });
+
+            self.autotiles.insert(layer, autotile_cache);
         }
     }
 
     pub fn resize(&self, width: u32, height: u32) -> Map {
-        let mut layers = HashMap::new();
+        let dimensions = (width as usize, height as usize);
+        let mut layers = HashMap::with_capacity(MapLayer::count());
+        let mut autotiles = HashMap::with_capacity(MapLayer::count());
+        
         for layer in MapLayer::iter() {
-            layers.insert(layer, Array2::default((width as usize, height as usize)));
+            let tiles = Zip::from(indices(dimensions)).map_collect(|index| {
+                self.layers.get(&layer)
+                    .and_then(|f| f.get(index).cloned())
+                    .flatten()
+            });
+            layers.insert(layer, tiles);
+            autotiles.insert(layer, Array2::default(dimensions));
         }
-
-        for (x, y) in itertools::iproduct!(0..self.width, 0..self.height) {
-            let index = (x as usize, y as usize);
-            for layer in MapLayer::iter() {
-                if let Some(&tile) = self.tile(layer, ivec2(x as i32, y as i32)) {
-                    if let Some(new_tile) = layers.get_mut(&layer).unwrap().get_mut(index) {
-                        *new_tile = tile;
-                    }
-                }
-            }
-        }
-
+        
         let map_rect = Rect::new(0., 0., width as f32 * TILE_SIZE as f32, height as f32 * TILE_SIZE as f32);
         let attributes = self.areas.iter().cloned()
             .filter(|attrib| map_rect.overlaps(&attrib.position))
             .collect();
 
-        Map { width, height, layers, areas: attributes }
+        let mut map = Map { width, height, layers, autotiles, areas: attributes };
+        map.update_autotile_cache();
+        map
     }
 }
 
@@ -368,31 +381,23 @@ impl TryFrom<NetworkMap> for Map {
         ensure!(value.layers.len() == MapLayer::count(), MapError::IncorrectLayers);
 
         let mut layers = HashMap::new();
+        let mut autotiles = HashMap::new();
         for (layer, contents) in value.layers {
             ensure!(contents.len() == size, MapError::IncorrectSize);
-            layers.insert(layer, contents.map(|&t| t.into()));
+            layers.insert(layer, contents.map(|t| t.map(Into::into)));
+            autotiles.insert(layer, Array2::default(contents.dim()));
         }
 
         let mut map = Self {
             width: value.width,
             height: value.height,
             layers, 
+            autotiles,
             areas: value.areas.into_iter().map(Into::into).collect(),
         };
 
-        map.update_autotiles();
-
+        map.update_autotile_cache();
         Ok(map)
-    }
-}
-
-impl From<NetworkTile> for Tile {
-    fn from(remote: NetworkTile) -> Self {
-        match remote {
-            NetworkTile::Empty => Tile::Empty,
-            NetworkTile::Basic(uv) => Tile::Basic(uv.into()),
-            NetworkTile::Autotile(uv) => Tile::Autotile { base: uv.into(), cache: Default::default() },
-        }
     }
 }
 
@@ -405,7 +410,7 @@ impl From<Map> for NetworkMap {
         let mut layers = HashMap::new();
         for (layer, contents) in value.layers {
             assert_eq!(contents.len(), size);
-            layers.insert(layer, contents.map(|&t| t.into()));
+            layers.insert(layer, contents.map(|t| t.map(Into::into)));
         }
 
         Self {
@@ -419,10 +424,20 @@ impl From<Map> for NetworkMap {
 
 impl From<Tile> for NetworkTile {
     fn from(tile: Tile) -> Self {
-        match tile {
-            Tile::Empty => NetworkTile::Empty,
-            Tile::Basic(uv) => NetworkTile::Basic(uv.into()),
-            Tile::Autotile { base, .. } => NetworkTile::Autotile(base.into()),
+        Self {
+            texture: tile.texture.into(),
+            autotile: tile.autotile,
+            animation_frames: tile.animation_frames
+        }
+    }
+}
+
+impl From<NetworkTile> for Tile {
+    fn from(tile: NetworkTile) -> Self {
+        Self {
+            texture: tile.texture.into(),
+            autotile: tile.autotile,
+            animation_frames: tile.animation_frames
         }
     }
 }

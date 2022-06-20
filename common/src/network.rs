@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, fmt::Display};
 
 use serde::{Serialize, Deserialize};
 use enum_iterator::Sequence;
@@ -21,7 +21,6 @@ pub enum ClientMessage {
     Move { position: Point2<f32>, direction: Direction, velocity: Option<Vector2<f32>> },
     Hello(String, u32),
     Message(String),
-    ChangeTile { position: Point2<i32>, layer: MapLayer, tile: Option<Point2<i32>>, is_autotile: bool },
     RequestMap,
     SaveMap(Map)
 }
@@ -33,7 +32,6 @@ pub enum ServerMessage {
     PlayerLeft(ClientId),
     PlayerMoved { client_id: ClientId, position: Point2<f32>, direction: Direction, velocity: Option<Vector2<f32>> },
     Message(ChatMessage),
-    ChangeTile { position: Point2<i32>, layer: MapLayer, tile: Option<Point2<i32>>, is_autotile: bool },
     ChangeMap(Map),
 }
 
@@ -101,7 +99,9 @@ pub enum ChatMessage {
 pub enum MapLayer {
     Ground,
     Mask,
+    Mask2,
     Fringe,
+    Fringe2
 }
 
 impl MapLayer {
@@ -114,11 +114,23 @@ impl MapLayer {
     }
 }
 
+impl Display for MapLayer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", match self {
+            MapLayer::Ground => "Ground",
+            MapLayer::Mask => "Mask",
+            MapLayer::Mask2 => "Mask 2",
+            MapLayer::Fringe => "Fringe",
+            MapLayer::Fringe2 => "Fringe 2",
+        })
+    }
+}
+
 #[derive(Default, Clone, Serialize, Deserialize, PartialEq, Debug)]
 pub struct Map {
     pub width: u32,
     pub height: u32,
-    pub layers: HashMap<MapLayer, Array2<Tile>>,
+    pub layers: HashMap<MapLayer, Array2<Option<Tile>>>,
     pub areas: Vec<Area>
 }
 
@@ -140,16 +152,10 @@ impl Map {
 }
 
 #[derive(Copy, Clone, Serialize, Deserialize, PartialEq, Debug)]
-pub enum Tile {
-    Empty,
-    Basic(Point2<i32>),
-    Autotile(Point2<i32>),
-}
-
-impl Default for Tile {
-    fn default() -> Self {
-        Tile::Empty
-    }
+pub struct Tile {
+    pub texture: Point2<i32>,
+    pub autotile: bool,
+    pub animation_frames: u8,
 }
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Debug)]
