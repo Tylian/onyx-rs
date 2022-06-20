@@ -3,7 +3,7 @@ use std::{sync::RwLock, collections::HashMap, fs, time::{Instant, Duration}};
 use euclid::default::{Rect, Point2D, Vector2D, Size2D};
 use log::{debug, error};
 use anyhow::{anyhow, Result};
-use onyx_common::{network::{PlayerData as NetworkPlayerData, ClientId, Map as NetworkMap, ServerMessage, ChatMessage, ClientMessage, AttributeData}, SPRITE_SIZE, TILE_SIZE};
+use onyx_common::{network::{PlayerData as NetworkPlayerData, ClientId, Map as NetworkMap, ServerMessage, ChatMessage, ClientMessage, AreaData}, SPRITE_SIZE, TILE_SIZE};
 
 use crate::networking::{Networking, NetworkSignal, Message};
 
@@ -240,9 +240,9 @@ impl GameServer {
                 let map_box = Rect::new(Point2D::zero(), map_size).to_box2d();
 
                 let valid = map_box.contains_box(&sprite)
-                    && !map.attributes.iter().any(|attrib| {
+                    && !map.areas.iter().any(|attrib| {
                         let box2d = Rect::new(attrib.position.into(), attrib.size.into()).to_box2d();
-                        attrib.data == AttributeData::Blocked && box2d.intersects(&sprite)
+                        attrib.data == AreaData::Blocked && box2d.intersects(&sprite)
                     });
 
                 if valid {
@@ -259,9 +259,9 @@ impl GameServer {
                 Size2D::new(SPRITE_SIZE as f32, SPRITE_SIZE as f32 / 2.0)
             ).to_box2d();
 
-            for attrib in map.attributes.iter() {
+            for attrib in map.areas.iter() {
                 match &attrib.data {
-                    AttributeData::Log(message) => {
+                    AreaData::Log(message) => {
                         let box2d = Rect::new(attrib.position.into(), attrib.size.into()).to_box2d();
                         if box2d.intersects(&sprite) && player.last_message.elapsed() > Duration::from_secs(1) {
                             let message = ChatMessage::Server(message.clone());
@@ -269,7 +269,7 @@ impl GameServer {
                             player.last_message = self.time;
                         }
                     },
-                    AttributeData::Blocked => (),
+                    AreaData::Blocked => (),
                 }
             }
         }

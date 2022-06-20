@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use onyx_common::TILE_SIZE;
-use onyx_common::network::{MapLayer, Map as NetworkMap, Tile as NetworkTile, Attribute as NetworkAttribute, AttributeData};
+use onyx_common::network::{MapLayer, Map as NetworkMap, Tile as NetworkTile, Area as NetworkArea, AreaData};
 use macroquad::prelude::*;
 use mint::{Vector2, Point2};
 use ndarray::Array2;
@@ -180,24 +180,24 @@ trait AttributeDataEx {
     fn color(&self) -> Color;
 }
 
-impl AttributeDataEx for AttributeData {
+impl AttributeDataEx for AreaData {
     fn text(&self) -> String {
         match self {
-            AttributeData::Blocked => String::from("Blocked"),
-            AttributeData::Log(message) => format!("Log: {}", message),
+            AreaData::Blocked => String::from("Blocked"),
+            AreaData::Log(message) => format!("Log: {}", message),
         }
     }
     fn color(&self) -> Color {
         match self {
-            AttributeData::Blocked => RED,
-            AttributeData::Log(_) => SKYBLUE,
+            AreaData::Blocked => RED,
+            AreaData::Log(_) => SKYBLUE,
         }
     }
 }
 
-pub fn draw_attribute(position: Rect, data: &AttributeData, assets: &Assets) {
+pub fn draw_area(position: Rect, data: &AreaData, assets: &Assets) {
     let color = data.color();
-    let text = data.name();
+    let text = data.text();
 
     let Rect { x, y, w, h } = position;
     draw_rectangle(x, y, w, h, Color::new(color.r, color.g, color.b, 0.4));
@@ -217,14 +217,14 @@ pub fn draw_attribute(position: Rect, data: &AttributeData, assets: &Assets) {
 }
 
 #[derive(Clone, Debug)]
-pub struct Attribute {
+pub struct Area {
     pub position: Rect,
-    pub data: AttributeData,
+    pub data: AreaData,
 }
 
-impl Attribute {
+impl Area {
     pub fn draw(&self, assets: &Assets) {
-        draw_attribute(self.position, &self.data, assets);
+        draw_area(self.position, &self.data, assets);
     }
 }
 
@@ -233,7 +233,7 @@ pub struct Map {
     pub width: u32,
     pub height: u32,
     layers: HashMap<MapLayer, Array2<Tile>>,
-    pub attributes: Vec<Attribute>,
+    pub areas: Vec<Area>,
 }
 
 impl Map {
@@ -248,7 +248,7 @@ impl Map {
             width,
             height,
             layers,
-            attributes: Vec::new(),
+            areas: Vec::new(),
         }
     }
 
@@ -282,8 +282,8 @@ impl Map {
         }
     }
 
-    pub fn draw_attributes(&self, assets: &Assets) {
-        for attrib in &self.attributes {
+    pub fn draw_areas(&self, assets: &Assets) {
+        for attrib in &self.areas {
             attrib.draw(assets);
         }
     }
@@ -344,11 +344,11 @@ impl Map {
         }
 
         let map_rect = Rect::new(0., 0., width as f32 * TILE_SIZE as f32, height as f32 * TILE_SIZE as f32);
-        let attributes = self.attributes.iter().cloned()
+        let attributes = self.areas.iter().cloned()
             .filter(|attrib| map_rect.overlaps(&attrib.position))
             .collect();
 
-        Map { width, height, layers, attributes }
+        Map { width, height, layers, areas: attributes }
     }
 }
 
@@ -377,7 +377,7 @@ impl TryFrom<NetworkMap> for Map {
             width: value.width,
             height: value.height,
             layers, 
-            attributes: value.attributes.into_iter().map(Into::into).collect(),
+            areas: value.areas.into_iter().map(Into::into).collect(),
         };
 
         map.update_autotiles();
@@ -412,7 +412,7 @@ impl From<Map> for NetworkMap {
             width: value.width,
             height: value.height,
             layers, 
-            attributes: value.attributes.into_iter().map(Into::into).collect(),
+            areas: value.areas.into_iter().map(Into::into).collect(),
         }
     }
 }
@@ -427,8 +427,8 @@ impl From<Tile> for NetworkTile {
     }
 }
 
-impl From<NetworkAttribute> for Attribute {
-    fn from(other: NetworkAttribute) -> Self {
+impl From<NetworkArea> for Area {
+    fn from(other: NetworkArea) -> Self {
         Self {
             position: Rect::new(other.position.x, other.position.y, other.size.x, other.size.y),
             data: other.data,
@@ -436,8 +436,8 @@ impl From<NetworkAttribute> for Attribute {
     }
 }
 
-impl From<Attribute> for NetworkAttribute {
-    fn from(other: Attribute) -> Self {
+impl From<Area> for NetworkArea {
+    fn from(other: Area) -> Self {
         Self {
             position: Point2 { x: other.position.x, y: other.position.y },
             size: Vector2 { x: other.position.w, y: other.position.h },

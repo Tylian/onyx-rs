@@ -1,14 +1,14 @@
 use std::collections::HashMap;
 
 use onyx_common::{SPRITE_SIZE, TILE_SIZE, WALK_SPEED, RUN_SPEED};
-use onyx_common::network::{ClientId, ChatMessage, ServerMessage, ClientMessage, Direction, MapLayer, AttributeData};
+use onyx_common::network::{ClientId, ChatMessage, ServerMessage, ClientMessage, Direction, MapLayer, AreaData};
 use macroquad::prelude::*;
 use log::{error, info, debug};
 
 use crate::assets::Assets;
 use crate::networking::{NetworkClient, NetworkStatus};
-use crate::map::{Map, Tile, Attribute, draw_attribute};
-use crate::ui::{attribute_radio, tile_selector};
+use crate::map::{Map, Tile, Area, draw_area};
+use crate::ui::{area_radio, tile_selector};
 use self::player::{Player, Animation, Tween};
 
 mod player;
@@ -17,7 +17,7 @@ mod player;
 enum MapEditor {
     Closed,
     Tileset,
-    Attributes,
+    Areas,
     Settings,
 }
 
@@ -34,7 +34,7 @@ struct UiState {
     block_keyboard: bool,
     map_width: u32,
     map_height: u32,
-    attribute: AttributeData,
+    area: AreaData,
 }
 
 impl Default for UiState {
@@ -52,7 +52,7 @@ impl Default for UiState {
             map_width: 0,
             map_height: 0,
             drag_start: Option::default(),
-            attribute: AttributeData::Blocked,
+            area: AreaData::Blocked,
         }
     }
 }
@@ -132,7 +132,7 @@ impl GameState {
 
                 let valid = sprite_rect.left() >= 0.0 && sprite_rect.top() >= 0.0
                     && sprite_rect.right() < map_width && sprite_rect.bottom() < map_height
-                    && !self.map.attributes.iter().any(|attrib| attrib.data == AttributeData::Blocked && attrib.position.overlaps(&sprite_rect));
+                    && !self.map.areas.iter().any(|attrib| attrib.data == AreaData::Blocked && attrib.position.overlaps(&sprite_rect));
 
                 if valid {
                     player.position = new_position;
@@ -289,7 +289,7 @@ impl GameState {
                 });
                 ui.separator();
                 ui.selectable_value(&mut self.ui_state.map_editor, MapEditor::Tileset, "Tileset");
-                ui.selectable_value(&mut self.ui_state.map_editor, MapEditor::Attributes, "Attributes");
+                ui.selectable_value(&mut self.ui_state.map_editor, MapEditor::Areas, "Areas");
                 let settings = ui.selectable_value(&mut self.ui_state.map_editor, MapEditor::Settings, "Settings");
 
                 if settings.clicked() {
@@ -317,24 +317,26 @@ impl GameState {
                         ui.separator();
                         ui.checkbox(&mut self.ui_state.is_autotile, "Is autotile?");
                     });
+                    ui.separator();
                     if let Some(texture) = self.assets.egui.tileset.as_ref() {
-                        tile_selector(ui, &texture, &mut self.ui_state.tile_pos, Vec2::new(TILE_SIZE as f32, TILE_SIZE as f32));
+                        tile_selector(ui, texture, &mut self.ui_state.tile_pos, Vec2::new(TILE_SIZE as f32, TILE_SIZE as f32));
                     };
                 }
-                MapEditor::Attributes => { 
+                MapEditor::Areas => { 
                     ui.horizontal(|ui| {
                         ui.group(|ui| {
                             ui.vertical(|ui| {
-                                let response = attribute_radio(ui, matches!(self.ui_state.attribute, AttributeData::Blocked),
-                                    "Blocked", "Entities are blocked from entering this space.");
+                                ui.heading("Area type");
+                                let response = area_radio(ui, matches!(self.ui_state.area, AreaData::Blocked),
+                                    "Blocked", "Entities are blocked from entering this area.");
                                 if response.clicked() {
-                                    self.ui_state.attribute = AttributeData::Blocked;
+                                    self.ui_state.area = AreaData::Blocked;
                                 }
 
-                                let response = attribute_radio(ui, matches!(self.ui_state.attribute, AttributeData::Log(_)),
-                                    "Log", "Debug attribute, sends a message when inside.");
+                                let response = area_radio(ui, matches!(self.ui_state.area, AreaData::Log(_)),
+                                    "Log", "Debug area, sends a message when inside.");
                                 if response.clicked() {
-                                    self.ui_state.attribute = AttributeData::Log(Default::default());
+                                    self.ui_state.area = AreaData::Log(Default::default());
                                 }
 
                             });
@@ -342,10 +344,10 @@ impl GameState {
 
                         ui.group(|ui| {
                             ui.vertical(|ui| {
-                                ui.label("Attribute data");
-                                match &mut self.ui_state.attribute {
-                                    AttributeData::Blocked => { ui.label("Blocked has no values"); },
-                                    AttributeData::Log(message) => {
+                                ui.heading("Area data");
+                                match &mut self.ui_state.area {
+                                    AreaData::Blocked => { ui.label("Blocked has no values"); },
+                                    AreaData::Log(message) => {
                                         ui.label("Message to greet with:");
                                         ui.text_edit_singleline(message);
                                     },
@@ -478,12 +480,12 @@ impl GameState {
                         }
                     }
                 },
-                MapEditor::Attributes => {
+                MapEditor::Areas => {
                     let mouse_position = self.camera.screen_to_world(mouse_position().into());
                     if is_mouse_button_pressed(MouseButton::Right) {
-                        for (i, attrib) in self.map.attributes.iter().enumerate().rev() {
+                        for (i, attrib) in self.map.areas.iter().enumerate().rev() {
                             if attrib.position.contains(mouse_position) {
-                                self.map.attributes.swap_remove(i);
+                                self.map.areas.swap_remove(i);
                                 break;
                             }
                         }
@@ -497,9 +499,9 @@ impl GameState {
 
                         let drag_rect = Rect::new(start.x, start.y, size.x, size.y);
 
-                        self.map.attributes.push(Attribute {
+                        self.map.areas.push(Area {
                             position: drag_rect,
-                            data: self.ui_state.attribute.clone(),
+                            data: self.ui_state.area.clone(),
                         });
                     } else if self.ui_state.drag_start.is_none() && mouse_down {
                         self.ui_state.drag_start = Some(mouse_position);
@@ -554,7 +556,7 @@ impl GameState {
         self.map.draw_layer(MapLayer::Fringe, &self.assets);
 
         if self.ui_state.map_editor != MapEditor::Closed {
-            self.map.draw_attributes(&self.assets);
+            self.map.draw_areas(&self.assets);
             if let Some(drag_start) = self.ui_state.drag_start {
                 let mouse = self.camera.screen_to_world(mouse_position().into());
                 let start = drag_start.min(mouse);
@@ -562,7 +564,7 @@ impl GameState {
                 let size = end - start;
 
                 let drag_rect = Rect::new(start.x, start.y, size.x, size.y);
-                draw_attribute(drag_rect, &self.ui_state.attribute, &self.assets);
+                draw_area(drag_rect, &self.ui_state.area, &self.assets);
             }
         }
     }

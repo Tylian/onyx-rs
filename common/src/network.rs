@@ -119,7 +119,7 @@ pub struct Map {
     pub width: u32,
     pub height: u32,
     pub layers: HashMap<MapLayer, Array2<Tile>>,
-    pub attributes: Vec<Attribute>
+    pub areas: Vec<Area>
 }
 
 impl Map {
@@ -134,7 +134,7 @@ impl Map {
             width,
             height,
             layers,
-            attributes: Vec::new(),
+            areas: Vec::new(),
         }
     }
 }
@@ -153,23 +153,23 @@ impl Default for Tile {
 }
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Debug)]
-pub enum AttributeData {
+pub enum AreaData {
     Blocked,
     Log(String),
 }
 
-impl AttributeData {
+impl AreaData {
     pub fn name(&self) -> &str {
         match self {
-            AttributeData::Blocked => "Blocked",
-            AttributeData::Log(_) => "Log",
+            AreaData::Blocked => "Blocked",
+            AreaData::Log(_) => "Log",
         }
     }
 }
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Debug)]
-pub struct Attribute {
+pub struct Area {
     pub position: Point2<f32>,
     pub size: Vector2<f32>,
-    pub data: AttributeData,
+    pub data: AreaData,
 }
