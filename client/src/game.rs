@@ -1,31 +1,17 @@
 use std::collections::HashMap;
 
+use onyx_common::{SPRITE_SIZE, TILE_SIZE, WALK_SPEED, RUN_SPEED};
 use onyx_common::network::{ClientId, ChatMessage, ServerMessage, ClientMessage, Direction, MapLayer, AttributeData};
 use macroquad::prelude::*;
 use log::{error, info, debug};
 
 use crate::assets::Assets;
 use crate::networking::{NetworkClient, NetworkStatus};
-use crate::map::{Map, Tile, Attribute};
+use crate::map::{Map, Tile, Attribute, draw_attribute};
+use crate::ui::{attribute_radio, tile_selector};
 use self::player::{Player, Animation, Tween};
 
 mod player;
-
-pub const TILE_SIZE: f32 = 48.;
-pub const TILE_SIZE_I: i32 = 48;
-pub const SPRITE_SIZE: f32 = 48.;
-pub const SPRITE_SIZE_I: f32 = 48.;
-
-pub const WALK_SPEED: f64 = 2.5 * TILE_SIZE as f64;
-pub const RUN_SPEED: f64 = 5.0 * TILE_SIZE as f64;
-
-fn ivec2_to_egui(ivec: IVec2) -> egui::Vec2 {
-    egui::Vec2::new(ivec.x as f32, ivec.y as f32)
-}
-
-fn egui_to_ivec2(pos: egui::Pos2) -> IVec2 {
-    ivec2(pos.x as i32, pos.y as i32)
-}
 
 #[derive(Eq, PartialEq)]
 enum MapEditor {
@@ -39,7 +25,7 @@ struct UiState {
     chat_message: String,
     chat_messages: Vec<ChatMessage>,
     layer: MapLayer,
-    coords: IVec2,
+    tile_pos: egui::Pos2,
     is_autotile: bool,
     last_tile: Option<(MouseButton, IVec2)>,
     drag_start: Option<Vec2>,
@@ -57,7 +43,7 @@ impl Default for UiState {
             chat_message: String::new(),
             chat_messages: Vec::new(),
             layer: MapLayer::Ground,
-            coords: IVec2::default(),
+            tile_pos: egui::Pos2::default(),
             is_autotile: false,
             last_tile: None,
             map_editor: MapEditor::Closed,
@@ -68,6 +54,12 @@ impl Default for UiState {
             drag_start: Option::default(),
             attribute: AttributeData::Blocked,
         }
+    }
+}
+
+impl UiState {
+    fn tile_pos(&self) -> IVec2 {
+        ivec2(self.tile_pos.x as i32 / TILE_SIZE, self.tile_pos.y as i32 / TILE_SIZE)
     }
 }
 
@@ -135,7 +127,7 @@ impl GameState {
                 let offset = tween.velocity * (self.time - tween.last_update) as f32;
                 let new_position = player.position + offset;
                 // only block on the bottom half of the sprite, feels better
-                let sprite_rect = Rect::new(new_position.x, new_position.y + SPRITE_SIZE / 2.0, SPRITE_SIZE, SPRITE_SIZE / 2.0);
+                let sprite_rect = Rect::new(new_position.x, new_position.y + SPRITE_SIZE as f32 / 2.0, SPRITE_SIZE as f32, SPRITE_SIZE as f32 / 2.0);
                 let (map_width, map_height) = self.map.pixel_size();
 
                 let valid = sprite_rect.left() >= 0.0 && sprite_rect.top() >= 0.0
@@ -325,42 +317,40 @@ impl GameState {
                         ui.separator();
                         ui.checkbox(&mut self.ui_state.is_autotile, "Is autotile?");
                     });
-
                     if let Some(texture) = self.assets.egui.tileset.as_ref() {
-                        ScrollArea::both().show_viewport(ui, |ui, viewport| {
-                            let image = Image::new(texture, texture.size_vec2())
-                                .sense(Sense::click());
-        
-                            let clip_rect = ui.clip_rect();
-        
-                            let response = ui.add(image);
-                            if response.clicked() {
-                                let pos = response.interact_pointer_pos().expect("Pointer position shouldn't be None");
-                                let offset = viewport.left_top() + (pos - clip_rect.left_top()); // weird order just to make it typecheck lol
-                                self.ui_state.coords = egui_to_ivec2(offset) / TILE_SIZE_I;
-                            }
-        
-                            let pos = (clip_rect.left_top() - viewport.left_top()) + ivec2_to_egui(self.ui_state.coords * TILE_SIZE_I);
-                            let rect = Rect::from_min_size(pos.to_pos2(), Vec2::new(TILE_SIZE, TILE_SIZE));
-        
-                            // todo: this is offset slightly by the stroke?
-                            let painter = ui.painter();
-                            painter.rect_stroke(rect, 0., ui.visuals().window_stroke());
-        
-                            response
-                        });
-                    }
+                        tile_selector(ui, &texture, &mut self.ui_state.tile_pos, Vec2::new(TILE_SIZE as f32, TILE_SIZE as f32));
+                    };
                 }
                 MapEditor::Attributes => { 
                     ui.horizontal(|ui| {
                         ui.group(|ui| {
-                            ui.radio_value(&mut self.ui_state.attribute, AttributeData::Blocked, "Blocked");
+                            ui.vertical(|ui| {
+                                let response = attribute_radio(ui, matches!(self.ui_state.attribute, AttributeData::Blocked),
+                                    "Blocked", "Entities are blocked from entering this space.");
+                                if response.clicked() {
+                                    self.ui_state.attribute = AttributeData::Blocked;
+                                }
+
+                                let response = attribute_radio(ui, matches!(self.ui_state.attribute, AttributeData::Log(_)),
+                                    "Log", "Debug attribute, sends a message when inside.");
+                                if response.clicked() {
+                                    self.ui_state.attribute = AttributeData::Log(Default::default());
+                                }
+
+                            });
                         });
 
                         ui.group(|ui| {
-                            match self.ui_state.attribute {
-                                AttributeData::Blocked => ui.label("Blocked has no values"),
-                            }
+                            ui.vertical(|ui| {
+                                ui.label("Attribute data");
+                                match &mut self.ui_state.attribute {
+                                    AttributeData::Blocked => { ui.label("Blocked has no values"); },
+                                    AttributeData::Log(message) => {
+                                        ui.label("Message to greet with:");
+                                        ui.text_edit_singleline(message);
+                                    },
+                                }
+                            });
                         });
                     });
                     
@@ -430,21 +420,22 @@ impl GameState {
     
                 if cache != self.last_movement {
                     self.last_movement = cache;
-                    if let Some(direction) = movement {
+                    let velocity = if let Some(direction) = movement {
                         let velocity = Vec2::from(direction.offset_f32()) * speed as f32;
     
-                        // todo keep starting time?
                         player.animation = Animation::Walking { start: self.time, speed };
                         player.tween = Some(Tween { velocity, last_update: self.time });
                         player.direction = direction;
     
-                        self.network.send(ClientMessage::Move { position: player.position.into(), direction, velocity: Some(velocity.into()) });
+                        Some(velocity.into())
+                        
                     } else {
                         player.animation = Animation::Standing;
                         player.tween = None;
-    
-                        self.network.send(ClientMessage::Move { position: player.position.into(), direction: player.direction, velocity: None });
-                    }
+                        None
+                    };
+
+                    self.network.send(ClientMessage::Move { position: player.position.into(), direction: player.direction, velocity });
                 }
             }
     
@@ -468,15 +459,15 @@ impl GameState {
             
                     if let Some(mouse_button) = mouse_button {
                         let mouse_position = self.camera.screen_to_world(mouse_position().into()).as_i32();
-                        let tile_position = mouse_position / TILE_SIZE_I;
+                        let tile_position = mouse_position / TILE_SIZE;
             
                         let current_tile = (mouse_button, tile_position);
             
                         if self.ui_state.last_tile != Some(current_tile) {
                             if let Some(tile) = self.map.tile_mut(self.ui_state.layer, tile_position) {
                                 *tile = match mouse_button {
-                                    MouseButton::Left if self.ui_state.is_autotile => Tile::autotile(self.ui_state.coords),
-                                    MouseButton::Left => Tile::basic(self.ui_state.coords),
+                                    MouseButton::Left if self.ui_state.is_autotile => Tile::autotile(self.ui_state.tile_pos()),
+                                    MouseButton::Left => Tile::basic(self.ui_state.tile_pos()),
                                     MouseButton::Right => Tile::empty(),
                                     _ => unreachable!()
                                 };
@@ -508,7 +499,7 @@ impl GameState {
 
                         self.map.attributes.push(Attribute {
                             position: drag_rect,
-                            data: self.ui_state.attribute,
+                            data: self.ui_state.attribute.clone(),
                         });
                     } else if self.ui_state.drag_start.is_none() && mouse_down {
                         self.ui_state.drag_start = Some(mouse_position);
@@ -521,8 +512,11 @@ impl GameState {
 
     fn update_camera(&mut self) {
         if let Some(player) = self.local_player.and_then(|id| self.players.get_mut(&id)) {
-            let min = vec2(0., 0.);
-            let max = vec2(self.map.width as f32 * TILE_SIZE - screen_width(), self.map.height as f32 * TILE_SIZE - screen_height());
+            let min = Vec2::ZERO;
+            let max = vec2(
+                self.map.width as f32 * TILE_SIZE as f32 - screen_width(),
+                self.map.height as f32 * TILE_SIZE as f32 - screen_height()
+            );
             
             let mut position = -vec2(screen_width() / 2., screen_height() / 2.);
             position += player.position + vec2(24., 24.);
@@ -568,12 +562,7 @@ impl GameState {
                 let size = end - start;
 
                 let drag_rect = Rect::new(start.x, start.y, size.x, size.y);
-                let attrib = Attribute {
-                    position: drag_rect,
-                    data: self.ui_state.attribute,
-                };
-
-                attrib.draw(&self.assets);
+                draw_attribute(drag_rect, &self.ui_state.attribute, &self.assets);
             }
         }
     }

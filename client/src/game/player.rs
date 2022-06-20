@@ -34,7 +34,7 @@ impl Animation {
             },
         };
 
-        vec2(offset_x * SPRITE_SIZE, offset_y * SPRITE_SIZE)
+        vec2(offset_x * SPRITE_SIZE as f32, offset_y * SPRITE_SIZE as f32)
     }
 }
 
@@ -91,7 +91,7 @@ impl Player {
         
         // ? The text is drawn with the baseline being the supplied y
         let text_offset = (
-            (SPRITE_SIZE - measurements.width) / 2.0,
+            (SPRITE_SIZE as f32 - measurements.width) / 2.0,
             -3.0,
         ).into();
 
@@ -142,10 +142,10 @@ impl Player {
         let sprite_y = (self.sprite as f32 / 4.0).floor() * 4.0;
 
         let source = Rect::new(
-            sprite_x * SPRITE_SIZE + offset.x,
-            sprite_y * SPRITE_SIZE + offset.y,
-            SPRITE_SIZE,
-            SPRITE_SIZE
+            sprite_x * SPRITE_SIZE as f32 + offset.x,
+            sprite_y * SPRITE_SIZE as f32 + offset.y,
+            SPRITE_SIZE as f32,
+            SPRITE_SIZE as f32
         );
 
         draw_texture_ex(

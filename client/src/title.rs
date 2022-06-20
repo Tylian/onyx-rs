@@ -1,10 +1,10 @@
 use std::{fs, path::PathBuf};
 
 use macroquad::prelude::*;
-use onyx_common::network::ClientMessage;
+use onyx_common::{network::ClientMessage, SPRITE_SIZE};
 use serde::{Serialize, Deserialize};
 
-use crate::{networking::{NetworkClient, NetworkStatus}, assets::Assets, game::SPRITE_SIZE};
+use crate::{networking::{NetworkClient, NetworkStatus}, assets::Assets};
 
 #[derive(Serialize, Deserialize)]
 struct Settings {
@@ -59,9 +59,9 @@ fn draw_ui(ctx: &egui::Context, state: &mut UiState, assets: &Assets) {
                     let offset_x = (((time / 0.25).floor() % 4.0).floor() - 1.0).abs();
                     let offset_y = ((time / 4.).floor() % 4.).floor();
     
-                    let p = vec2((sprite_x + offset_x) as f32 * SPRITE_SIZE, (sprite_y + offset_y) as f32 * SPRITE_SIZE) / texture.size_vec2();
-                    let size = vec2(SPRITE_SIZE, SPRITE_SIZE) / texture.size_vec2();
-                    let sprite = Image::new(texture, (SPRITE_SIZE, SPRITE_SIZE))
+                    let p = vec2((sprite_x + offset_x) as f32 * SPRITE_SIZE as f32, (sprite_y + offset_y) as f32 * SPRITE_SIZE as f32) / texture.size_vec2();
+                    let size = vec2(SPRITE_SIZE as f32, SPRITE_SIZE as f32) / texture.size_vec2();
+                    let sprite = Image::new(texture, (SPRITE_SIZE as f32, SPRITE_SIZE as f32))
                         .uv(Rect::from_min_size(p.to_pos2(), size));
                     ui.add(sprite);
                 });

@@ -375,6 +375,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "euclid"
+version = "0.22.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b52c2ef4a78da0ba68fbe1fd920627411096d2ac478f7f4c9f3a54ba6705bade"
+dependencies = [
+ "mint",
+ "num-traits",
+]
+
+[[package]]
 name = "fontdue"
 version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -880,7 +890,7 @@ dependencies = [
  "bimap",
  "bincode",
  "env_logger",
- "glam",
+ "euclid",
  "log",
  "message-io",
  "mint",

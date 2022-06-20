@@ -152,12 +152,22 @@ impl Default for Tile {
     }
 }
 
-#[derive(Copy, Clone, Serialize, Deserialize, PartialEq, Debug)]
+#[derive(Clone, Serialize, Deserialize, PartialEq, Debug)]
 pub enum AttributeData {
     Blocked,
+    Log(String),
 }
 
-#[derive(Copy, Clone, Serialize, Deserialize, PartialEq, Debug)]
+impl AttributeData {
+    pub fn name(&self) -> &str {
+        match self {
+            AttributeData::Blocked => "Blocked",
+            AttributeData::Log(_) => "Log",
+        }
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize, PartialEq, Debug)]
 pub struct Attribute {
     pub position: Point2<f32>,
     pub size: Vector2<f32>,

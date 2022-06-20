@@ -1,9 +1,9 @@
-use std::{sync::RwLock, collections::HashMap, fs, time};
+use std::{sync::RwLock, collections::HashMap, fs, time::{Instant, Duration}};
 
-use glam::*;
+use euclid::default::{Rect, Point2D, Vector2D, Size2D};
 use log::{debug, error};
 use anyhow::{anyhow, Result};
-use onyx_common::network::{PlayerData as NetworkPlayerData, ClientId, Map as NetworkMap, ServerMessage, ChatMessage, ClientMessage};
+use onyx_common::{network::{PlayerData as NetworkPlayerData, ClientId, Map as NetworkMap, ServerMessage, ChatMessage, ClientMessage, AttributeData}, SPRITE_SIZE, TILE_SIZE};
 
 use crate::networking::{Networking, NetworkSignal, Message};
 
@@ -11,17 +11,18 @@ mod networking;
 
 #[derive(Copy, Clone)]
 pub struct Tween {
-    pub velocity: Vec2,
-    pub last_update: time::Duration,
+    pub velocity: Vector2D<f32>,
+    pub last_update: Instant,
 }
 
 #[derive(Clone)]
 struct PlayerData {
     name: String,
     sprite: u32,
-    position: Vec2,
+    position: Point2D<f32>,
     tween: Option<Tween>,
-    map: String
+    map: String,
+    last_message: Instant
 }
 
 impl From<PlayerData> for NetworkPlayerData {
@@ -37,10 +38,9 @@ impl From<PlayerData> for NetworkPlayerData {
 struct GameServer {
     network: RwLock<Networking>,
     network_queue: Vec<Message>,
-    data: HashMap<ClientId, Option<PlayerData>>,
+    players: HashMap<ClientId, Option<PlayerData>>,
     maps: HashMap<String, NetworkMap>,
-    start_time: time::Instant,
-    time: time::Duration,
+    time: Instant,
 }
 
 impl GameServer {
@@ -53,9 +53,8 @@ impl GameServer {
         Ok(Self {
             network: RwLock::new(network),
             network_queue: Vec::new(),
-            data: HashMap::new(),
-            start_time: time::Instant::now(),
-            time: time::Duration::ZERO,
+            players: HashMap::new(),
+            time: Instant::now(),
             maps
         })
     }   
@@ -92,13 +91,13 @@ impl GameServer {
     }
 
     fn handle_connect(&mut self, client_id: ClientId) {
-        self.data.insert(client_id, None);
+        self.players.insert(client_id, None);
     }
 
     fn handle_disconnect(&mut self, client_id: ClientId) {
         self.queue(Message::everyone_except(client_id, ServerMessage::PlayerLeft(client_id)));
-        if let Some(client_data) = self.data.remove(&client_id).flatten() {
-            let goodbye = ServerMessage::Message(ChatMessage::Server(format!("{} has left the game.", &client_data.name)));
+        if let Some(player) = self.players.remove(&client_id).flatten() {
+            let goodbye = ServerMessage::Message(ChatMessage::Server(format!("{} has left the game.", &player.name)));
             self.queue(Message::everyone_except(client_id, goodbye));
         }
     }
@@ -107,12 +106,13 @@ impl GameServer {
         debug!("{:?}: {:?}", client_id, message);
         match message {
             ClientMessage::Hello(name, sprite) => {
-                let client_data = PlayerData {
+                let player = PlayerData {
                     name,
                     sprite,
-                    position: glam::vec2(10. * 48., 7. * 48.),
+                    position: Point2D::new(10. * 48., 7. * 48.),
                     map: String::from("start"),
                     tween: None,
+                    last_message: self.time
                 };
 
                 // Send them their ID
@@ -120,7 +120,7 @@ impl GameServer {
 
                 // Send them the map
                 let map = self.maps
-                    .entry(client_data.map.clone())
+                    .entry(player.map.clone())
                     .or_insert_with(|| NetworkMap::new(20, 15))
                     .clone();
                 self.queue(Message::to(client_id, ServerMessage::ChangeMap(map)));
@@ -128,13 +128,13 @@ impl GameServer {
                 // Tell everyone else they joined
                 self.queue(Message::everyone(ServerMessage::PlayerJoined(
                     client_id,
-                    client_data.clone().into()
+                    player.clone().into()
                 )));
         
                 // Send everyone else the fact that they joined
-                let packets = self.data.iter()
+                let packets = self.players.iter()
                     .filter_map(|(k, v)| v.as_ref().map(|v| (k, v)))
-                    .map(|(id, data)| Message::to(client_id,  ServerMessage::PlayerJoined(*id, data.clone().into())))
+                    .map(|(id, player)| Message::to(client_id,  ServerMessage::PlayerJoined(*id, player.clone().into())))
                     .collect::<Vec<_>>();
         
                 self.queue_all(&packets);
@@ -143,16 +143,16 @@ impl GameServer {
                 self.queue(Message::to(client_id, ServerMessage::Message(ChatMessage::Server("Welcome to Game™!".to_owned()))));
 
                 // Send join message
-                let welcome = ServerMessage::Message(ChatMessage::Server(format!("{} has joined the game.", &client_data.name)));
+                let welcome = ServerMessage::Message(ChatMessage::Server(format!("{} has joined the game.", &player.name)));
                 self.queue(Message::everyone_except(client_id, welcome));
 
                 // Save their data, they are now officially in game
-                self.data.insert(client_id, Some(client_data));
+                self.players.insert(client_id, Some(player));
             },
 
             ClientMessage::Message(text) => {
-                if let Some(data) = self.data.get(&client_id).unwrap() {
-                    let full_text = format!("{}: {}", data.name, text);
+                if let Some(player) = self.players.get(&client_id).unwrap() {
+                    let full_text = format!("{}: {}", player.name, text);
                     let packet = ServerMessage::Message(ChatMessage::Say(full_text));
                     self.queue(Message::everyone(packet));
                 }
@@ -162,17 +162,17 @@ impl GameServer {
                 self.queue(Message::everyone(packet));
             },
             ClientMessage::RequestMap => {
-                if let Some(data) = self.data.get(&client_id).unwrap() {
-                    let map = self.maps.entry(data.map.clone())
+                if let Some(player) = self.players.get(&client_id).unwrap() {
+                    let map = self.maps.entry(player.map.clone())
                         .or_insert_with(|| NetworkMap::new(20, 15));
                     let packet = ServerMessage::ChangeMap(map.clone());
                     self.queue(Message::to(client_id, packet));
                 }
             },
             ClientMessage::SaveMap(remote) => {
-                if let Some(data) = self.data.get(&client_id).unwrap() {
-                    self.maps.insert(data.map.clone(), remote.clone());
-                    if let Err(e) = self.save_map(&data.map) {
+                if let Some(player) = self.players.get(&client_id).unwrap() {
+                    self.maps.insert(player.map.clone(), remote.clone());
+                    if let Err(e) = self.save_map(&player.map) {
                         error!("Couldn't save map {e}");
                     }
                     let packet = ServerMessage::ChangeMap(remote);
@@ -180,9 +180,9 @@ impl GameServer {
                 }
             },
             ClientMessage::Move { position, direction, velocity } => {
-                if let Some(data) = self.data.get_mut(&client_id).unwrap() {
-                    data.position = position.into();
-                    data.tween = velocity.map(|v| Tween { velocity: v.into(), last_update: self.time });
+                if let Some(player) = self.players.get_mut(&client_id).unwrap() {
+                    player.position = position.into();
+                    player.tween = velocity.map(|v| Tween { velocity: v.into(), last_update: self.time });
                     let packet = ServerMessage::PlayerMoved { client_id, position, direction, velocity };
                     self.queue(Message::everyone_except(client_id, packet));
                 }
@@ -192,7 +192,7 @@ impl GameServer {
 
     fn game_loop(mut self) {
         loop {
-            self.time = self.start_time.elapsed();
+            self.time = Instant::now();
 
             // networking
             while let Some(signal) = self.try_recv() {
@@ -204,14 +204,77 @@ impl GameServer {
             }
 
             // game loop
-            // for (endpoint, client) in &mut self.data {
-                
-            // }
+            self.update_players();
             
             // finalizing
             self.send_all();
             std::thread::yield_now();
         }
+    }
+
+    fn update_players(&mut self) {
+        let mut packets = Vec::new();
+
+        for (id, player) in &mut self.players {
+            let player = match player {
+                Some(player) => player,
+                None => continue,
+            };
+
+            let map = match self.maps.get(&player.map) {
+                Some(map) => map,
+                None => continue,
+            };
+
+            if let Some(tween) = player.tween.as_mut() {
+                let offset = tween.velocity * (self.time - tween.last_update).as_secs_f32();
+                let new_position = player.position + offset;
+
+                // only block on the bottom half of the sprite, feels better
+                let sprite = Rect::new(
+                    Point2D::new(new_position.x, new_position.y + SPRITE_SIZE as f32 / 2.0),
+                    Size2D::new(SPRITE_SIZE as f32, SPRITE_SIZE as f32 / 2.0)
+                ).to_box2d();
+
+                let map_size = Size2D::new(map.width as f32 * TILE_SIZE as f32, map.height as f32 * TILE_SIZE as f32); // todo map method
+                let map_box = Rect::new(Point2D::zero(), map_size).to_box2d();
+
+                let valid = map_box.contains_box(&sprite)
+                    && !map.attributes.iter().any(|attrib| {
+                        let box2d = Rect::new(attrib.position.into(), attrib.size.into()).to_box2d();
+                        attrib.data == AttributeData::Blocked && box2d.intersects(&sprite)
+                    });
+
+                if valid {
+                    player.position = new_position;
+                }
+
+                // ? need to update anyway even if we don't change anything
+                // ? if we don't you can clip through stuff by walking against it for awhile
+                tween.last_update = self.time;
+            }
+
+            let sprite = Rect::new(
+                Point2D::new(player.position.x, player.position.y + SPRITE_SIZE as f32 / 2.0),
+                Size2D::new(SPRITE_SIZE as f32, SPRITE_SIZE as f32 / 2.0)
+            ).to_box2d();
+
+            for attrib in map.attributes.iter() {
+                match &attrib.data {
+                    AttributeData::Log(message) => {
+                        let box2d = Rect::new(attrib.position.into(), attrib.size.into()).to_box2d();
+                        if box2d.intersects(&sprite) && player.last_message.elapsed() > Duration::from_secs(1) {
+                            let message = ChatMessage::Server(message.clone());
+                            packets.push(Message::to(*id, ServerMessage::Message(message)));
+                            player.last_message = self.time;
+                        }
+                    },
+                    AttributeData::Blocked => (),
+                }
+            }
+        }
+
+        self.queue_all(&packets);
     }
 
     // Specifically created to avoid scope issues

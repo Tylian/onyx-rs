@@ -10,6 +10,7 @@ mod macros;
 mod map;
 mod networking;
 mod title;
+mod ui;
 
 pub type GameResult<T> = Result<T, Box<dyn std::error::Error>>;
 

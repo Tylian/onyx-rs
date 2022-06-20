@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use onyx_common::TILE_SIZE;
 use onyx_common::network::{MapLayer, Map as NetworkMap, Tile as NetworkTile, Attribute as NetworkAttribute, AttributeData};
 use macroquad::prelude::*;
 use mint::{Vector2, Point2};
@@ -8,7 +9,6 @@ use thiserror::Error;
 
 use crate::assets::Assets;
 use crate::ensure;
-use crate::game::{TILE_SIZE_I, TILE_SIZE};
 
 const OFFSETS: &[(i32, i32)] = &[
     (0, -1), (1, 0), (0, 1), (-1, 0),
@@ -143,8 +143,8 @@ impl Tile {
     }
 
     fn draw_tile(&self, position: Vec2, uv: IVec2, assets: &Assets) {
-        let uv = uv * TILE_SIZE_I;
-        let source = Rect::new(uv.x as f32, uv.y as f32, TILE_SIZE, TILE_SIZE);
+        let uv = uv * TILE_SIZE;
+        let source = Rect::new(uv.x as f32, uv.y as f32, TILE_SIZE as f32, TILE_SIZE as f32);
 
         draw_texture_ex(
             assets.tileset,
@@ -175,7 +175,48 @@ impl Tile {
     }
 }
 
-#[derive(Copy, Clone, Debug)]
+trait AttributeDataEx {
+    fn text(&self) -> String;
+    fn color(&self) -> Color;
+}
+
+impl AttributeDataEx for AttributeData {
+    fn text(&self) -> String {
+        match self {
+            AttributeData::Blocked => String::from("Blocked"),
+            AttributeData::Log(message) => format!("Log: {}", message),
+        }
+    }
+    fn color(&self) -> Color {
+        match self {
+            AttributeData::Blocked => RED,
+            AttributeData::Log(_) => SKYBLUE,
+        }
+    }
+}
+
+pub fn draw_attribute(position: Rect, data: &AttributeData, assets: &Assets) {
+    let color = data.color();
+    let text = data.name();
+
+    let Rect { x, y, w, h } = position;
+    draw_rectangle(x, y, w, h, Color::new(color.r, color.g, color.b, 0.4));
+    draw_rectangle_lines(x, y, w, h, 1.0, color);
+
+    let bounds = measure_text(&text, Some(assets.font), 16, 1.0);
+    
+    let text_x = x + (w - bounds.width) / 2.0;
+    let text_y = y + (h - bounds.height) / 2.0 + bounds.offset_y;
+
+    draw_text_ex(&text, text_x, text_y, TextParams {
+        font: assets.font,
+        font_size: 16,
+        color,
+        ..Default::default()
+    });
+}
+
+#[derive(Clone, Debug)]
 pub struct Attribute {
     pub position: Rect,
     pub data: AttributeData,
@@ -183,34 +224,7 @@ pub struct Attribute {
 
 impl Attribute {
     pub fn draw(&self, assets: &Assets) {
-        let color = self.color();
-        let text = self.text();
-
-        let Rect { x, y, w, h } = self.position;
-        draw_rectangle(x, y, w, h, Color::new(color.r, color.g, color.b, 0.4));
-        draw_rectangle_lines(x, y, w, h, 1.0, color);
-
-        let bounds = measure_text(&text, Some(assets.font), 16, 1.0);
-        
-        let text_x = x + (w - bounds.width) / 2.0;
-        let text_y = y + (h - bounds.height) / 2.0 + bounds.offset_y;
-
-        draw_text_ex(&text, text_x, text_y, TextParams {
-            font: assets.font,
-            font_size: 16,
-            color,
-            ..Default::default()
-        });
-    }
-    pub fn text(&self) -> String {
-        match self.data {
-            AttributeData::Blocked => String::from("Blocked"),
-        }
-    }
-    pub fn color(&self) -> Color {
-        match self.data {
-            AttributeData::Blocked => RED,
-        }
+        draw_attribute(self.position, &self.data, assets);
     }
 }
 
@@ -239,7 +253,7 @@ impl Map {
     }
 
     pub fn pixel_size(&self) -> (f32, f32) {
-        (self.width as f32 * TILE_SIZE, self.height as f32 * TILE_SIZE)
+        (self.width as f32 * TILE_SIZE as f32, self.height as f32 * TILE_SIZE as f32)
     }
 
     pub fn valid(&self, pos: IVec2) -> bool {
@@ -261,7 +275,7 @@ impl Map {
     pub fn draw_layer(&self, layer: MapLayer, assets: &Assets) {
         for (x, y) in itertools::iproduct!(0..self.width, 0..self.height) {
             let position = ivec2(x as i32, y as i32);
-            let screen_position = position.as_f32() * TILE_SIZE;
+            let screen_position = position.as_f32() * TILE_SIZE as f32;
             if let Some(tile) = self.tile(layer, position) {
                 tile.draw(screen_position, assets);
             }
@@ -329,7 +343,7 @@ impl Map {
             }
         }
 
-        let map_rect = Rect::new(0., 0., width as f32 * TILE_SIZE, height as f32 * TILE_SIZE);
+        let map_rect = Rect::new(0., 0., width as f32 * TILE_SIZE as f32, height as f32 * TILE_SIZE as f32);
         let attributes = self.attributes.iter().cloned()
             .filter(|attrib| map_rect.overlaps(&attrib.position))
             .collect();
