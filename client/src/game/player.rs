@@ -1,7 +1,13 @@
-use onyx_common::{network::{ClientId, Direction, PlayerData}, TILE_SIZE};
 use macroquad::prelude::*;
+use onyx_common::{
+    network::{ClientId, Direction, PlayerData},
+    TILE_SIZE,
+};
 
-use crate::{assets::Assets, utils::{draw_text_shadow, ping_pong}};
+use crate::{
+    assets::Assets,
+    utils::{draw_text_shadow, ping_pong},
+};
 
 use super::SPRITE_SIZE;
 
@@ -11,8 +17,8 @@ pub enum Animation {
         /// Start time of the animation
         start: f64,
         /// Movement speed in pixels per second.
-        speed: f64
-    }
+        speed: f64,
+    },
 }
 
 impl Animation {
@@ -25,13 +31,11 @@ impl Animation {
         };
 
         let offset_x = match self {
-            Animation::Standing => {
-                1.0
-            },
+            Animation::Standing => 1.0,
             Animation::Walking { start, speed } => {
                 let length = 2.0 * TILE_SIZE as f64 / speed;
                 ping_pong(((time - start) / length) % 1.0, 3) as f32
-            },
+            }
         };
 
         vec2(offset_x * SPRITE_SIZE as f32, offset_y * SPRITE_SIZE as f32)
@@ -59,7 +63,7 @@ impl Player {
         Self {
             id,
             name: data.name,
-            position: data.position.into(), // todo
+            position: data.position.into(),
             animation: Animation::Standing,
             tween: None,
             sprite: data.sprite,
@@ -74,21 +78,24 @@ impl Player {
 
     pub fn draw_text(&self, assets: &Assets, position: Vec2) {
         const FONT_SIZE: u16 = 16;
-        let measurements = measure_text(&self.name, Some(assets.font), FONT_SIZE, 1.0);
-        
+        let measurements =
+            measure_text(&self.name, Some(assets.font), FONT_SIZE, 1.0);
+
         // ? The text is drawn with the baseline being the supplied y
-        let text_offset = (
-            (SPRITE_SIZE as f32 - measurements.width) / 2.0,
-            -3.0,
-        ).into();
+        let text_offset =
+            ((SPRITE_SIZE as f32 - measurements.width) / 2.0, -3.0).into();
 
         let pos = position + text_offset;
-        draw_text_shadow(&self.name, pos, TextParams {
-            font_size: FONT_SIZE,
-            font: assets.font,
-            color: WHITE,
-            ..Default::default()
-        });
+        draw_text_shadow(
+            &self.name,
+            pos,
+            TextParams {
+                font_size: FONT_SIZE,
+                font: assets.font,
+                color: WHITE,
+                ..Default::default()
+            },
+        );
     }
     fn draw_sprite(&self, assets: &Assets, position: Vec2, time: f64) {
         let offset = self.animation.get_animation_offset(time, self.direction);
@@ -100,7 +107,7 @@ impl Player {
             sprite_x * SPRITE_SIZE as f32 + offset.x,
             sprite_y * SPRITE_SIZE as f32 + offset.y,
             SPRITE_SIZE as f32,
-            SPRITE_SIZE as f32
+            SPRITE_SIZE as f32,
         );
 
         draw_texture_ex(
@@ -108,10 +115,7 @@ impl Player {
             position.x,
             position.y,
             WHITE,
-            DrawTextureParams {
-                source: Some(source),
-                ..Default::default()
-            }
+            DrawTextureParams { source: Some(source), ..Default::default() },
         );
     }
 }

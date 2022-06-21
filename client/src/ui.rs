@@ -1,11 +1,19 @@
 use egui::*;
-use glam::{ivec2};
-use onyx_common::{SPRITE_SIZE, network::{TileAnimation, MapLayer, AreaData}, TILE_SIZE};
+use glam::ivec2;
+use onyx_common::{
+    network::{AreaData, MapLayer, TileAnimation},
+    SPRITE_SIZE, TILE_SIZE,
+};
 use strum::IntoEnumIterator;
 
-use crate::{utils::ping_pong, map::Tile, assets::Assets};
+use crate::{assets::Assets, map::Tile, utils::ping_pong};
 
-pub fn area_radio(ui: &mut Ui, selected: bool, title: &str, description: &str) -> Response {
+pub fn area_radio(
+    ui: &mut Ui,
+    selected: bool,
+    title: &str,
+    description: &str,
+) -> Response {
     ui.radio(selected, title).on_hover_ui(|ui| {
         ui.heading(title);
         ui.label(description);
@@ -13,20 +21,32 @@ pub fn area_radio(ui: &mut Ui, selected: bool, title: &str, description: &str) -
 }
 
 // TODO multiple tile selections
-pub fn tile_selector(ui: &mut Ui, texture: &TextureHandle, selected: &mut Pos2, snap: Vec2) {
+pub fn tile_selector(
+    ui: &mut Ui,
+    texture: &TextureHandle,
+    selected: &mut Pos2,
+    snap: Vec2,
+) {
     ScrollArea::both().show_viewport(ui, |ui, viewport| {
         let clip_rect = ui.clip_rect();
 
         let margin = ui.visuals().clip_rect_margin;
-        let offset = (clip_rect.left_top() - viewport.left_top()) + vec2(margin, margin);
+        let offset = (clip_rect.left_top() - viewport.left_top())
+            + vec2(margin, margin);
         let texture_size = texture.size_vec2();
 
-        let response = ui.add(Image::new(texture, texture_size).sense(Sense::click()));
+        let response =
+            ui.add(Image::new(texture, texture_size).sense(Sense::click()));
         if response.clicked() {
             let pointer = response.interact_pointer_pos().unwrap();
             let position = pointer - offset;
-            if position.x >= 0.0 && position.y >= 0.0 && position.x < texture_size.x && position.y < texture_size.y {
-                *selected = (snap * (position.to_vec2() / snap).floor()).to_pos2();
+            if position.x >= 0.0
+                && position.y >= 0.0
+                && position.x < texture_size.x
+                && position.y < texture_size.y
+            {
+                *selected =
+                    (snap * (position.to_vec2() / snap).floor()).to_pos2();
             }
         }
 
@@ -38,11 +58,16 @@ pub fn tile_selector(ui: &mut Ui, texture: &TextureHandle, selected: &mut Pos2, 
     });
 }
 
-pub fn sprite_preview(ui: &mut Ui, texture: &TextureHandle, time: f64, sprite: u32) -> Response {
+pub fn sprite_preview(
+    ui: &mut Ui,
+    texture: &TextureHandle,
+    time: f64,
+    sprite: u32,
+) -> Response {
     let sprite_x = (sprite as f64 % 4.0) * 3.0;
     let sprite_y = (sprite as f64 / 4.0).floor() * 4.0;
 
-    // walk left and right 
+    // walk left and right
     let speed = 2.5; // tiles per second
     let loops = 8.0; // how many tiles to walk before rotating
 
@@ -53,8 +78,12 @@ pub fn sprite_preview(ui: &mut Ui, texture: &TextureHandle, time: f64, sprite: u
     //let offset_x = (((time / 0.25).floor() % 4.0).floor() - 1.0).abs();
     // let offset_y = ((time / 4.0).floor() % 4.0).floor();
 
-    let p = vec2((sprite_x + offset_x) as f32 * SPRITE_SIZE as f32, (sprite_y + offset_y) as f32 * SPRITE_SIZE as f32) / texture.size_vec2();
-    let size = vec2(SPRITE_SIZE as f32, SPRITE_SIZE as f32) / texture.size_vec2();
+    let p = vec2(
+        (sprite_x + offset_x) as f32 * SPRITE_SIZE as f32,
+        (sprite_y + offset_y) as f32 * SPRITE_SIZE as f32,
+    ) / texture.size_vec2();
+    let size =
+        vec2(SPRITE_SIZE as f32, SPRITE_SIZE as f32) / texture.size_vec2();
     let sprite = Image::new(texture, (SPRITE_SIZE as f32, SPRITE_SIZE as f32))
         .uv(Rect::from_min_size(p.to_pos2(), size));
 
@@ -65,7 +94,7 @@ pub fn sprite_preview(ui: &mut Ui, texture: &TextureHandle, time: f64, sprite: u
 pub enum MapEditorTab {
     Tileset,
     Areas,
-    Settings
+    Settings,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -74,14 +103,13 @@ pub enum MapEditorWants {
     SaveMap,
     ReloadMap,
     GetMapSize,
-    ResizeMap
+    ResizeMap,
 }
-
 
 #[derive(Clone, Copy, PartialEq)]
 pub struct MapEditorResponse {
     tab: MapEditorTab,
-    wants: MapEditorWants
+    wants: MapEditorWants,
 }
 
 impl MapEditorResponse {
@@ -150,9 +178,20 @@ impl MapEditor {
             ui.add_space(6.0);
             ui.separator();
 
-            ui.selectable_value(&mut self.tab, MapEditorTab::Tileset, "Tileset");
+            ui.selectable_value(
+                &mut self.tab,
+                MapEditorTab::Tileset,
+                "Tileset",
+            );
             ui.selectable_value(&mut self.tab, MapEditorTab::Areas, "Areas");
-            if ui.selectable_value(&mut self.tab, MapEditorTab::Settings, "Settings").clicked() {
+            if ui
+                .selectable_value(
+                    &mut self.tab,
+                    MapEditorTab::Settings,
+                    "Settings",
+                )
+                .clicked()
+            {
                 wants = MapEditorWants::GetMapSize;
             }
         });
@@ -168,50 +207,81 @@ impl MapEditor {
         if tab_wants != MapEditorWants::Nothing {
             wants = tab_wants;
         }
-        
 
         MapEditorResponse { tab: self.tab, wants }
     }
 
-    fn show_tileset_tab(&mut self, ui: &mut Ui, assets: &Assets) -> MapEditorWants {
+    fn show_tileset_tab(
+        &mut self,
+        ui: &mut Ui,
+        assets: &Assets,
+    ) -> MapEditorWants {
         let id = ui.make_persistent_id("mapeditor_settings");
-        collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, false)
-            .show_header(ui, |ui| {
-                ui.horizontal(|ui| {
-                    ui.label("Layer: ");
-                    egui::ComboBox::from_id_source("layer")
-                        .selected_text(self.layer.to_string())
-                        .show_ui(ui, |ui| {
-                            for layer in MapLayer::iter() {
-                                if layer == MapLayer::Fringe {
-                                    ui.separator();
-                                }
-                                ui.selectable_value(&mut self.layer, layer, layer.to_string());
+        collapsing_header::CollapsingState::load_with_default_open(
+            ui.ctx(),
+            id,
+            false,
+        )
+        .show_header(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.label("Layer: ");
+                egui::ComboBox::from_id_source("layer")
+                    .selected_text(self.layer.to_string())
+                    .show_ui(ui, |ui| {
+                        for layer in MapLayer::iter() {
+                            if layer == MapLayer::Fringe {
+                                ui.separator();
                             }
+                            ui.selectable_value(
+                                &mut self.layer,
+                                layer,
+                                layer.to_string(),
+                            );
                         }
-                    );
-                    ui.weak("(Press the arrow for more options)");
-                });
-            }).body(|ui| {
-                ui.checkbox(&mut self.is_autotile, "Autotile");
-                ui.checkbox(&mut self.is_tile_animated, "Animated");
-                ui.add_enabled_ui(self.is_tile_animated, |ui| {
-                    Grid::new("animation settings").num_columns(2).show(ui, |ui| {
+                    });
+                ui.weak("(Press the arrow for more options)");
+            });
+        })
+        .body(|ui| {
+            ui.checkbox(&mut self.is_autotile, "Autotile");
+            ui.checkbox(&mut self.is_tile_animated, "Animated");
+            ui.add_enabled_ui(self.is_tile_animated, |ui| {
+                Grid::new("animation settings").num_columns(2).show(
+                    ui,
+                    |ui| {
                         ui.label("Duration:");
-                        ui.add(DragValue::new(&mut self.tile_animation.duration).speed(0.01f64).clamp_range(0f64..=f64::MAX).suffix("s"));
+                        ui.add(
+                            DragValue::new(&mut self.tile_animation.duration)
+                                .speed(0.01f64)
+                                .clamp_range(0f64..=f64::MAX)
+                                .suffix("s"),
+                        );
                         ui.end_row();
 
                         ui.label("Frames:");
-                        ui.add(DragValue::new(&mut self.tile_animation.frames).speed(0.1f64).clamp_range(0f64..=f64::MAX));
+                        ui.add(
+                            DragValue::new(&mut self.tile_animation.frames)
+                                .speed(0.1f64)
+                                .clamp_range(0f64..=f64::MAX),
+                        );
                         ui.end_row();
-                    });
-                    ui.checkbox(&mut self.tile_animation.bouncy, "Bouncy animation (e.g 1-2-3-2)");
-                });
+                    },
+                );
+                ui.checkbox(
+                    &mut self.tile_animation.bouncy,
+                    "Bouncy animation (e.g 1-2-3-2)",
+                );
             });
+        });
 
         ui.add_space(6.0);
         if let Some(texture) = assets.egui.tileset.as_ref() {
-            tile_selector(ui, texture, &mut self.tile_picker, Vec2::new(TILE_SIZE as f32, TILE_SIZE as f32));
+            tile_selector(
+                ui,
+                texture,
+                &mut self.tile_picker,
+                Vec2::new(TILE_SIZE as f32, TILE_SIZE as f32),
+            );
         };
 
         MapEditorWants::Nothing
@@ -222,18 +292,25 @@ impl MapEditor {
             ui.group(|ui| {
                 ui.vertical(|ui| {
                     ui.heading("Area type");
-                    let response = area_radio(ui, matches!(self.area_data, AreaData::Blocked),
-                        "Blocked", "Entities are blocked from entering this area.");
+                    let response = area_radio(
+                        ui,
+                        matches!(self.area_data, AreaData::Blocked),
+                        "Blocked",
+                        "Entities are blocked from entering this area.",
+                    );
                     if response.clicked() {
                         self.area_data = AreaData::Blocked;
                     }
 
-                    let response = area_radio(ui, matches!(self.area_data, AreaData::Log(_)),
-                        "Log", "Debug area, sends a message when inside.");
+                    let response = area_radio(
+                        ui,
+                        matches!(self.area_data, AreaData::Log(_)),
+                        "Log",
+                        "Debug area, sends a message when inside.",
+                    );
                     if response.clicked() {
                         self.area_data = AreaData::Log(Default::default());
                     }
-
                 });
             });
 
@@ -242,12 +319,14 @@ impl MapEditor {
                     ui.heading("Area data");
                     Grid::new("area data").num_columns(2).show(ui, |ui| {
                         match &mut self.area_data {
-                            AreaData::Blocked => { ui.label("Blocked has no values"); },
+                            AreaData::Blocked => {
+                                ui.label("Blocked has no values");
+                            }
                             AreaData::Log(message) => {
                                 ui.label("Greeting:");
                                 ui.text_edit_singleline(message);
                                 ui.end_row();
-                            },
+                            }
                         }
                     });
                 });
@@ -264,17 +343,30 @@ impl MapEditor {
             ui.heading("Map size");
             Grid::new("resize").num_columns(2).show(ui, |ui| {
                 ui.label("Width:");
-                ui.add(DragValue::new(&mut self.map_width).clamp_range(0..=u32::MAX).speed(0.05).suffix(" tiles"));
+                ui.add(
+                    DragValue::new(&mut self.map_width)
+                        .clamp_range(0..=u32::MAX)
+                        .speed(0.05)
+                        .suffix(" tiles"),
+                );
                 ui.end_row();
 
                 ui.label("Height:");
-                ui.add(DragValue::new(&mut self.map_height).clamp_range(0..=u32::MAX).speed(0.05).suffix(" tiles"));
+                ui.add(
+                    DragValue::new(&mut self.map_height)
+                        .clamp_range(0..=u32::MAX)
+                        .speed(0.05)
+                        .suffix(" tiles"),
+                );
                 ui.end_row();
 
                 let shift = ui.ctx().input().modifiers.shift;
                 ui.add_enabled_ui(shift, |ui| {
                     let button = ui.button("Save").on_disabled_hover_ui(|ui| {
-                        ui.colored_label(Color32::RED, "This will destroy tiles outside of the map and isn't reversable.");
+                        ui.colored_label(
+                            Color32::RED,
+                            "This will destroy tiles outside of the map and isn't reversable.",
+                        );
                         ui.label("Hold shift to enable the save button.");
                     });
                     if button.clicked() {
@@ -306,7 +398,10 @@ impl MapEditor {
 
     pub fn tile(&self) -> Tile {
         Tile {
-            texture: ivec2(self.tile_picker.x as i32 / TILE_SIZE, self.tile_picker.y as i32 / TILE_SIZE),
+            texture: ivec2(
+                self.tile_picker.x as i32 / TILE_SIZE,
+                self.tile_picker.y as i32 / TILE_SIZE,
+            ),
             autotile: self.is_autotile,
             animation: if self.is_tile_animated {
                 Some(self.tile_animation)

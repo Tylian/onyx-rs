@@ -1,20 +1,20 @@
 use std::{fs, path::PathBuf};
 
 use macroquad::prelude::*;
-use onyx_common::{network::ClientMessage};
-use serde::{Serialize, Deserialize};
+use onyx_common::network::ClientMessage;
+use serde::{Deserialize, Serialize};
 
 use crate::{
-    networking::{NetworkClient, NetworkStatus},
     assets::Assets,
-    ui::sprite_preview
+    networking::{NetworkClient, NetworkStatus},
+    ui::sprite_preview,
 };
 
 #[derive(Serialize, Deserialize)]
 struct Settings {
     address: String,
     name: String,
-    sprite: u32
+    sprite: u32,
 }
 
 impl Default for Settings {
@@ -29,7 +29,7 @@ impl Default for Settings {
 
 struct UiState {
     settings: Settings,
-    network: Option<NetworkClient>
+    network: Option<NetworkClient>,
 }
 
 fn draw_ui(ctx: &egui::Context, state: &mut UiState, assets: &Assets) {
@@ -53,10 +53,19 @@ fn draw_ui(ctx: &egui::Context, state: &mut UiState, assets: &Assets) {
                 ui.end_row();
                 ui.label("Sprite:");
                 ui.horizontal_centered(|ui| {
-                    ui.add(DragValue::new(&mut state.settings.sprite).clamp_range(0u32..=55u32).speed(0.1));
+                    ui.add(
+                        DragValue::new(&mut state.settings.sprite)
+                            .clamp_range(0u32..=55u32)
+                            .speed(0.1),
+                    );
 
                     if let Some(texture) = &assets.egui.sprites {
-                        sprite_preview(ui, texture, time, state.settings.sprite);
+                        sprite_preview(
+                            ui,
+                            texture,
+                            time,
+                            state.settings.sprite,
+                        );
                     }
                 });
                 ui.end_row();
@@ -68,7 +77,10 @@ fn draw_ui(ctx: &egui::Context, state: &mut UiState, assets: &Assets) {
                     network.connect(state.settings.address.clone());
 
                     // ! TODO
-                    network.send(ClientMessage::Hello(state.settings.name.clone(), state.settings.sprite));
+                    network.send(ClientMessage::Hello(
+                        state.settings.name.clone(),
+                        state.settings.sprite,
+                    ));
                     state.network = Some(network);
                 }
                 if is_connecting {
@@ -76,19 +88,17 @@ fn draw_ui(ctx: &egui::Context, state: &mut UiState, assets: &Assets) {
                 }
             });
         });
-    });  
+    });
 }
 
 pub async fn title_screen(assets: Assets) -> NetworkClient {
     let path = PathBuf::from("./settings.bin");
     let settings = fs::read(path)
-        .ok().and_then(|bytes| bincode::deserialize(&bytes).ok())
+        .ok()
+        .and_then(|bytes| bincode::deserialize(&bytes).ok())
         .unwrap_or_default();
-    
-    let mut state = UiState {
-        settings,
-        network: None,
-    };
+
+    let mut state = UiState { settings, network: None };
 
     // let mut state = UiState {
     //     address: "66.228.47.52:3042".to_owned(),
@@ -101,11 +111,14 @@ pub async fn title_screen(assets: Assets) -> NetworkClient {
         // update
         egui_macroquad::ui(|egui_ctx| draw_ui(egui_ctx, &mut state, &assets));
 
-        let is_online = state.network.as_ref()
+        let is_online = state
+            .network
+            .as_ref()
             .map_or(false, |n| n.status() == NetworkStatus::Connected);
 
         if is_online {
-            let written = bincode::serialize(&state.settings).ok()
+            let written = bincode::serialize(&state.settings)
+                .ok()
                 .and_then(|bytes| fs::write("./settings.bin", bytes).ok())
                 .is_some();
 

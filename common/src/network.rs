@@ -2,7 +2,7 @@ use std::{collections::HashMap, fmt::Display};
 
 use mint::{Point2, Vector2};
 use ndarray::Array2;
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 use strum::{EnumCount, EnumIter, IntoEnumIterator};
 
 #[derive(Serialize, Deserialize, PartialEq, Debug, Eq, Hash, Clone, Copy)]
@@ -17,11 +17,15 @@ impl From<u64> for ClientId {
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Debug)]
 pub enum ClientMessage {
-    Move { position: Point2<f32>, direction: Direction, velocity: Option<Vector2<f32>> },
+    Move {
+        position: Point2<f32>,
+        direction: Direction,
+        velocity: Option<Vector2<f32>>,
+    },
     Hello(String, u32),
     Message(String),
     RequestMap,
-    SaveMap(Map)
+    SaveMap(Map),
 }
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Debug)]
@@ -29,7 +33,12 @@ pub enum ServerMessage {
     Hello(ClientId),
     PlayerJoined(ClientId, PlayerData),
     PlayerLeft(ClientId),
-    PlayerMoved { client_id: ClientId, position: Point2<f32>, direction: Direction, velocity: Option<Vector2<f32>> },
+    PlayerMoved {
+        client_id: ClientId,
+        position: Point2<f32>,
+        direction: Direction,
+        velocity: Option<Vector2<f32>>,
+    },
     Message(ChatMessage),
     ChangeMap(Map),
 }
@@ -71,13 +80,13 @@ impl Direction {
 
 impl From<Direction> for Vector2<f32> {
     fn from(dir: Direction) -> Self {
-       dir.offset_f32()
+        dir.offset_f32()
     }
 }
 
 impl From<Direction> for Vector2<i32> {
     fn from(dir: Direction) -> Self {
-       dir.offset_i32()
+        dir.offset_i32()
     }
 }
 
@@ -91,27 +100,42 @@ pub struct PlayerData {
 #[derive(Clone, Serialize, Deserialize, PartialEq, Debug)]
 pub enum ChatMessage {
     Server(String),
-    Say(String)
+    Say(String),
 }
 
-#[derive(Copy, Clone, Serialize, Deserialize, PartialEq, Debug, Eq, Hash, EnumCount, EnumIter)]
+#[derive(
+    Copy,
+    Clone,
+    Serialize,
+    Deserialize,
+    PartialEq,
+    Debug,
+    Eq,
+    Hash,
+    EnumCount,
+    EnumIter,
+)]
 pub enum MapLayer {
     Ground,
     Mask,
     Mask2,
     Fringe,
-    Fringe2
+    Fringe2,
 }
 
 impl Display for MapLayer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", match self {
-            MapLayer::Ground => "Ground",
-            MapLayer::Mask => "Mask",
-            MapLayer::Mask2 => "Mask 2",
-            MapLayer::Fringe => "Fringe",
-            MapLayer::Fringe2 => "Fringe 2",
-        })
+        write!(
+            f,
+            "{}",
+            match self {
+                MapLayer::Ground => "Ground",
+                MapLayer::Mask => "Mask",
+                MapLayer::Mask2 => "Mask 2",
+                MapLayer::Fringe => "Fringe",
+                MapLayer::Fringe2 => "Fringe 2",
+            }
+        )
     }
 }
 
@@ -120,7 +144,7 @@ pub struct Map {
     pub width: u32,
     pub height: u32,
     pub layers: HashMap<MapLayer, Array2<Option<Tile>>>,
-    pub areas: Vec<Area>
+    pub areas: Vec<Area>,
 }
 
 impl Map {
@@ -128,15 +152,13 @@ impl Map {
         let mut layers = HashMap::new();
 
         for layer in MapLayer::iter() {
-            layers.insert(layer, Array2::default((width as usize, height as usize)));
+            layers.insert(
+                layer,
+                Array2::default((width as usize, height as usize)),
+            );
         }
 
-        Self {
-            width,
-            height,
-            layers,
-            areas: Vec::new(),
-        }
+        Self { width, height, layers, areas: Vec::new() }
     }
 }
 
@@ -151,7 +173,7 @@ pub struct Tile {
 pub struct TileAnimation {
     pub frames: u16,
     pub duration: f64,
-    pub bouncy: bool
+    pub bouncy: bool,
 }
 
 impl TileAnimation {

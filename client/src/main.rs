@@ -2,15 +2,15 @@
 
 use macroquad::window::Conf;
 
-use crate::{game::game_screen, title::title_screen, assets::Assets};
+use crate::{assets::Assets, game::game_screen, title::title_screen};
 
 mod assets;
 mod game;
-mod utils;
 mod map;
 mod networking;
 mod title;
 mod ui;
+mod utils;
 
 pub type GameResult<T> = Result<T, Box<dyn std::error::Error>>;
 
@@ -30,9 +30,8 @@ async fn main() {
 
     #[cfg(not(debug_assertions))]
     simple_logger::init_with_level(log::Level::Warn).unwrap();
-    
-    let mut assets = Assets::load().await
-        .expect("Could not load assets");
+
+    let mut assets = Assets::load().await.expect("Could not load assets");
 
     egui_macroquad::cfg(|ctx| assets.load_egui(ctx));
 
