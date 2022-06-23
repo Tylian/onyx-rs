@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use egui::*;
 use glam::ivec2;
+use mint::Point2;
 use onyx_common::{
     network::{AreaData, MapId, MapLayer, MapSettings, TileAnimation},
     SPRITE_SIZE, TILE_SIZE,
@@ -67,22 +68,30 @@ pub fn sprite_preview(ui: &mut Ui, texture: &TextureHandle, time: f64, sprite: u
     ui.add(sprite)
 }
 
-fn map_selector(ui: &mut Ui, selected: &mut MapId, maps: &HashMap<MapId, String>) {
-    let selected_text = format!(
-        "{}: {}",
-        selected.0,
-        maps.get(selected).cloned().unwrap_or_default()
-    ) ;
-    egui::ComboBox::from_id_source("map selecter")
-        .selected_text(selected_text)
-        .show_ui(ui, |ui| {
-            for (id, name) in maps.iter() {
-                if ui.selectable_label(selected == id, format!("{}: {}", id.0, name)).clicked() {
-                    *selected = *id;
-                }
-            }
+fn map_selector(ui: &mut Ui, id: &str, value: &mut Option<MapId>, maps: &HashMap<MapId, String>) {
+    let selected_label = if let Some(id) = value {
+        if let Some(map) = maps.get(id) {
+            format!("{}. {}", id.0, map)
+        } else {
+            format!("{}.", id.0)
         }
-    );
+    } else {
+        String::from("Disabled")
+    };
+
+    egui::ComboBox::from_id_source(id)
+        .selected_text(selected_label)
+        .show_ui(ui, |ui| {
+            ui.selectable_value(value, None, "Disabled");
+            ui.separator();
+
+            let mut items = maps.iter().collect::<Vec<_>>();
+            items.sort_unstable_by(|(a, _), (b, _)| a.0.cmp(&b.0));
+
+            for (id, name) in items {
+                ui.selectable_value(value, Some(*id), format!("{}. {}", id.0, name));
+            }
+        });
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -172,21 +181,21 @@ fn auto_complete<T: AsRef<str>>(ui: &mut Ui, popup_id: Id, suggestions: &[T], cu
     }
 }
 
-fn option_combo<H, T>(ui: &mut Ui, id: H, selected: &mut Option<String>, default: &str, list: &[T])
+fn option_combo<H, T, F>(ui: &mut Ui, id: H, selected: &mut Option<T>, render: F, list: &[T])
 where
     H: std::hash::Hash,
-    T: AsRef<str>,
+    T: PartialEq + Clone,
+    F: Fn(Option<&T>) -> String
 {
     egui::ComboBox::from_id_source(id)
-        .selected_text(selected.as_deref().unwrap_or(default))
+        .selected_text(render(selected.as_ref()))
         .show_ui(ui, |ui| {
-            ui.selectable_value(selected, None, default);
+            ui.selectable_value(selected, None, render(None));
             ui.separator();
 
             for item in list.iter() {
-                let item = item.as_ref();
-                if ui.selectable_label(selected.as_deref() == Some(item), item).clicked() {
-                    *selected = Some(String::from(item))
+                if ui.selectable_label(selected.as_ref() == Some(item), render(Some(item))).clicked() {
+                    *selected = Some(item.clone())
                 }
             }
         });
@@ -340,12 +349,16 @@ impl MapEditor {
 
                     let response = area_radio(
                         ui,
-                        matches!(self.area_data, AreaData::Log(_)),
-                        "Log",
-                        "Debug area, sends a message when inside.",
+                        matches!(self.area_data, AreaData::Warp(_, _, _)),
+                        "Warp",
+                        "Teleports a player somewhere else",
                     );
                     if response.clicked() {
-                        self.area_data = AreaData::Log(Default::default());
+                        self.area_data = AreaData::Warp(
+                            MapId(0),
+                            Point2 { x: 0.0, y: 0.0 },
+                            onyx_common::network::Direction::South
+                        );
                     }
                 });
             });
@@ -359,10 +372,39 @@ impl MapEditor {
                             AreaData::Blocked => {
                                 ui.label("Blocked has no values");
                             }
-                            AreaData::Log(message) => {
-                                ui.label("Greeting:");
-                                ui.text_edit_singleline(message);
+                            AreaData::Warp(map_id, position, direction) => {
+                                ui.label("Map:");
+                                egui::ComboBox::from_id_source("warp map")
+                                    .selected_text(format!("{}. {}", map_id.0, self.maps.get(map_id).unwrap()))
+                                    .show_ui(ui, |ui| {
+                                        let mut items = self.maps.iter().collect::<Vec<_>>();
+                                        items.sort_unstable_by(|(a, _), (b, _)| a.0.cmp(&b.0));
+                            
+                                        for (id, name) in items {
+                                            ui.selectable_value(map_id, *id, format!("{}. {}", id.0, name));
+                                        }
+                                    });
                                 ui.end_row();
+
+                                ui.label("Position:");
+                                ui.horizontal(|ui| {
+                                    ui.label("X: ");
+                                    ui.add(DragValue::new(&mut position.x).clamp_range(0.0..=f32::INFINITY));
+                                    ui.label("Y: ");
+                                    ui.add(DragValue::new(&mut position.y).clamp_range(0.0..=f32::INFINITY));
+                                });
+                                ui.end_row();
+
+                                ui.label("Direction:");
+                                egui::ComboBox::from_id_source("warp direction")
+                                    .selected_text(direction.to_string())
+                                    .show_ui(ui, |ui| {
+                                        use onyx_common::network::Direction;
+                                        ui.selectable_value(direction, Direction::North, "North");
+                                        ui.selectable_value(direction, Direction::East, "East");
+                                        ui.selectable_value(direction, Direction::South, "South");
+                                        ui.selectable_value(direction, Direction::West, "West");
+                                    });
                             }
                         });
                 });
@@ -402,10 +444,22 @@ impl MapEditor {
             ui.end_row();
 
             ui.label("Music:");
-            ui.add_enabled_ui(false, |ui| {
-                let music = vec!["yeet.ogg", "yeet2.ogg"];
-                option_combo(ui, "music", &mut self.settings.music, "Don't change", &music);
-            });
+            egui::ComboBox::from_id_source("music")
+                .selected_text(if let Some(music) = &self.settings.music { music } else { "None" })
+                .show_ui(ui, |ui| {
+                    if ui.selectable_label(self.settings.music.is_none(), "None").clicked() {
+                        self.settings.music = None;
+                        assets.stop_music();
+                    }
+                    ui.separator();
+
+                    for item in assets.get_music() {
+                        if ui.selectable_label(self.settings.music.as_ref() == Some(&item), &item).clicked() {
+                            self.settings.music = Some(item.clone());
+                            assets.play_music(&item);
+                        }
+                    }
+                });
             ui.end_row();
 
             ui.label("Revision:");
@@ -428,43 +482,19 @@ impl MapEditor {
         ui.heading("Edge warps");
         Grid::new("warps").num_columns(3).show(ui, |ui| {
             ui.label("North:");
-            // option_combo(
-            //     ui,
-            //     "north",
-            //     &mut self.settings.warps.north,
-            //     "Disabled",
-            //     &self.maps,
-            // );
+            map_selector(ui, "north", &mut self.settings.warps.north, &self.maps);
             ui.end_row();
 
             ui.label("East:");
-            // option_combo(
-            //     ui,
-            //     "east",
-            //     &mut self.settings.warps.east,
-            //     "Disabled",
-            //     &self.maps,
-            // );
+            map_selector(ui, "east", &mut self.settings.warps.east, &self.maps);
             ui.end_row();
 
             ui.label("South:");
-            // option_combo(
-            //     ui,
-            //     "south",
-            //     &mut self.settings.warps.south,
-            //     "Disabled",
-            //     &self.maps,
-            // );
+            map_selector(ui, "south", &mut self.settings.warps.south, &self.maps);
             ui.end_row();
 
             ui.label("West:");
-            // option_combo(
-            //     ui,
-            //     "west",
-            //     &mut self.settings.warps.west,
-            //     "Disabled",
-            //     &self.maps,
-            // );
+            map_selector(ui, "west", &mut self.settings.warps.west, &self.maps);
             ui.end_row();
         });
 
@@ -478,23 +508,35 @@ impl MapEditor {
         let mut wants = MapEditorWants::Nothing;
 
         ui.heading("Teleport");
-        ui.label("Enter an ID and then hit \"Go\", the map editor will close and you will be teleported to that map.");
-        Grid::new("teleport").num_columns(2).show(ui, |ui| {
-            ui.label("Id:");
-            ui.horizontal(|ui| {
-                // let popup_id = ui.make_persistent_id("map_selector");
-                // ➡▶➕
-                
-                map_selector(ui, &mut self.selected_id, &self.maps);
-
-                if ui.button("➡▶").clicked() {
-                    wants = MapEditorWants::Warp(self.selected_id);
+        ui.label("Select a map and hit ▶, the map editor will close and you will be teleported to it.");
+        ui.label("The list contains maps that haven't been created yet, as well as the option to create a new map at the bottom.");
+        ui.horizontal(|ui| {
+            fn label_text(id: MapId, name: Option<impl AsRef<str>>) -> impl Into<WidgetText> {
+                if let Some(name) = name {
+                    RichText::new(format!("{}. {}", id.0, name.as_ref()))
+                } else {
+                    RichText::new(format!("{}. new map", id.0)).italics()
                 }
-
-                if ui.button("➕").clicked() {
-                    wants = MapEditorWants::Warp(self.selected_id);
+            }
+            let selected_text = label_text(self.selected_id, self.maps.get(&self.selected_id));
+            egui::ComboBox::from_id_source("map selecter")
+                .selected_text(selected_text)
+                .show_ui(ui, |ui| {
+                    ui.set_min_width(200.0);
+                    let max_id = self.maps.keys().fold(0, |acc, k| k.0.max(acc)) + 1;
+                    for id in 0..=max_id {
+                        let key = MapId(id);
+                        let label = label_text(key, self.maps.get(&key));
+                        if ui.selectable_label(self.selected_id == key, label).clicked() {
+                            self.selected_id = key;
+                        }
+                    }
                 }
-            });
+            );
+
+            if ui.button("▶").clicked() {
+                wants = MapEditorWants::Warp(self.selected_id);
+            }
         });
 
         ui.add_space(6.0);

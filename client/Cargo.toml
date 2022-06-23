@@ -14,7 +14,7 @@ egui-macroquad = "0.11.0"
 glam = { version = "0.14.0", features = ["mint", "serde"] }
 itertools = "0.10.3"
 log = "0.4.17"
-macroquad = "0.3.16"
+macroquad = { version = "0.3.18", default_features = false }
 message-io = { version = "0.14.5", default_features = false, features = ["tcp"] }
 mint = { version = "0.5.9", features = ["serde"] }
 ndarray = { version = "0.15.4", features = ["serde"] }
@@ -23,3 +23,4 @@ serde = "1.0.137"
 simple_logger = "2.1.0"
 strum = "0.24.1"
 thiserror = "1.0.31"
+rodio = "0.15.0"

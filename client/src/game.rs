@@ -190,6 +190,11 @@ impl GameState {
                             log::error!("Error converting remote map: {err:?}")
                         }
                     };
+                    if let Some(music) = &self.map.settings.music {
+                        self.assets.play_music(music);
+                    } else {
+                        self.assets.stop_music();
+                    }
                     self.assets.set_tileset(&self.map.settings.tileset).unwrap();
                 }
                 ServerMessage::MapEditor {

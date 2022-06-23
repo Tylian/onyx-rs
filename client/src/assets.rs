@@ -1,11 +1,12 @@
 use std::{
     cell::{Ref, RefCell},
     collections::HashMap,
-    ffi::OsStr,
+    ffi::OsStr, io::BufReader, fs::File,
 };
 
 use anyhow::{anyhow, Result};
-use macroquad::prelude::*;
+use macroquad::{prelude::*};
+use rodio::{Decoder, OutputStream, Sink, OutputStreamHandle, Source};
 
 #[derive(Clone)]
 pub struct DualTexture {
@@ -34,12 +35,17 @@ impl DualTexture {
     }
 }
 
-#[derive(Clone)]
 pub struct Assets {
     tilesets: HashMap<String, Image>,
     pub tileset: RefCell<DualTexture>,
     pub sprites: DualTexture,
     pub font: Font,
+
+    _output_stream: OutputStream,
+    stream_handle: OutputStreamHandle,
+
+    music_list: Vec<String>,
+    current_sink: RefCell<Option<(String, Sink)>>
 }
 
 impl Assets {
@@ -49,14 +55,21 @@ impl Assets {
         let font = load_ttf_font("assets/LiberationMono-Regular.ttf").await?;
 
         let tilesets = Assets::load_tilesets().await?;
+        let music_list = Assets::load_music_list().await?;
+
         // unwrap: Assets::load_tilesets ensures that at least "default.png" always exists
         let tileset = DualTexture::from_image("default.png", tilesets.get("default.png").unwrap());
+        let (stream, stream_handle) = OutputStream::try_default()?;
 
         Ok(Self {
             tilesets,
             tileset: RefCell::new(tileset),
+            music_list,
+            current_sink: RefCell::new(None),
             sprites,
             font,
+            _output_stream: stream,
+            stream_handle,
         })
     }
 
@@ -99,5 +112,46 @@ impl Assets {
         } else {
             Err(anyhow!("not found"))
         }
+    }
+
+    pub fn get_music(&self) -> Vec<String> {
+        self.music_list.clone()
+    }
+    
+    async fn load_music_list() -> Result<Vec<String>> {
+        let mut music = Vec::new();
+        for entry in std::fs::read_dir("./assets/music")? {
+            let entry = entry?;
+            let path = entry.path();
+            if path.is_file() {
+                debug!("Loading music {}", path.display());
+                let name = path.file_name().unwrap().to_string_lossy();
+                music.push(name.to_string())
+            }
+        }
+        
+        Ok(music)
+    }
+
+    pub fn play_music(&self, file_name: &str) {
+        match self.current_sink.replace(None) {
+            Some((current_file, sink)) if current_file == file_name => {
+                self.current_sink.replace(Some((current_file, sink)));
+            },
+            _ => {
+                let sink = Sink::try_new(&self.stream_handle).unwrap();
+                let file = BufReader::new(File::open(format!("./assets/music/{file_name}")).unwrap());
+                let source = Decoder::new(file).unwrap().repeat_infinite();
+                #[cfg(debug_assertions)]
+                sink.set_volume(0.4);
+                sink.append(source);
+
+                self.current_sink.replace(Some((file_name.to_string(), sink)));
+            },
+        }
+    }
+
+    pub fn stop_music(&self) {
+        self.current_sink.replace(None);
     }
 }

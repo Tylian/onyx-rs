@@ -2,8 +2,7 @@ use std::{
     collections::{HashMap, VecDeque},
     ffi::OsStr,
     fs,
-    sync::RwLock,
-    time::{Duration, Instant},
+    time::{Duration, Instant}, cell::RefCell,
 };
 
 use anyhow::{anyhow, Result};
@@ -28,7 +27,6 @@ struct PlayerData {
     direction: Direction,
     velocity: Option<Vector2D<f32>>,
     map: MapId,
-    last_message: Instant,
 }
 
 impl From<PlayerData> for NetworkPlayerData {
@@ -51,13 +49,15 @@ struct WarpParams {
 }
 
 struct GameServer {
-    network: RwLock<Networking>,
-    network_queue: VecDeque<Message>,
+    network: Networking,
     players: HashMap<ClientId, PlayerData>,
     maps: HashMap<MapId, NetworkMap>,
     time: Instant,
     /// Time since last update
     dt: Duration,
+
+    // Mutable state
+    network_queue: RefCell<VecDeque<Message>>,
 }
 
 impl GameServer {
@@ -68,17 +68,14 @@ impl GameServer {
         let maps = Self::load_maps()?;
 
         Ok(Self {
-            network: RwLock::new(network),
-            network_queue: VecDeque::new(),
+            network,
             players: HashMap::new(),
             time: Instant::now(),
             dt: Duration::ZERO,
             maps,
-        })
-    }
 
-    pub fn run(self) {
-        self.game_loop();
+            network_queue: RefCell::new(VecDeque::new()),
+        })
     }
 
     pub fn load_maps() -> Result<HashMap<MapId, NetworkMap>> {
@@ -125,7 +122,6 @@ impl GameServer {
             direction: Direction::South,
             map: MapId::start(),
             velocity: None,
-            last_message: self.time,
         }
     }
 
@@ -285,7 +281,7 @@ impl GameServer {
         }
     }
 
-    fn game_loop(mut self) {
+    fn run(&mut self) {
         loop {
             let now = Instant::now();
             let dt = now - self.time;
@@ -305,16 +301,18 @@ impl GameServer {
             self.update_players();
 
             // finalizing
-            self.send_all();
+            self.maintain();
             std::thread::sleep(Duration::from_secs_f64(1.0 / 60.0));
         }
     }
 
     fn update_players(&mut self) {
-        let mut packets = Vec::new();
         let dt = self.dt;
 
-        for (id, player) in &mut self.players {
+        let mut packets = Vec::new();
+        let mut to_warp = Vec::new();
+
+        for (client_id, player) in &mut self.players {
             let map = match self.maps.get(&player.map) {
                 Some(map) => map,
                 None => continue,
@@ -323,6 +321,7 @@ impl GameServer {
             if let Some(velocity) = player.velocity {
                 let offset = velocity * dt.as_secs_f32();
                 let new_position = player.position + offset;
+                let mut valid = true;
 
                 // only block on the bottom half of the sprite, feels better
                 let sprite = Rect::new(
@@ -331,18 +330,79 @@ impl GameServer {
                 )
                 .to_box2d();
 
-                let map_size = Size2D::new(
+                let (map_width, map_height) = (map.width as f32 * TILE_SIZE as f32, map.height as f32 * TILE_SIZE as f32);
+
+                // map warps, lots of copy paste code lol
+                if let Some(map_id) = map.settings.warps.north {
+                    if sprite.min.y <= 0.0 {
+                        let height = self.maps.get(&map_id).unwrap().height as f32 * TILE_SIZE as f32;
+                        to_warp.push((
+                            *client_id,
+                            map_id,
+                            WarpParams {
+                                position: Some(Point2D::new(new_position.x, height - SPRITE_SIZE as f32)),
+                                ..Default::default()
+                            }
+                        ));
+                        valid = false;
+                    }
+                } 
+                
+                if let Some(map_id) = map.settings.warps.south {
+                    if sprite.max.y >= map_height {
+                        to_warp.push((
+                            *client_id,
+                            map_id,
+                            WarpParams {
+                                position: Some(Point2D::new(new_position.x, -SPRITE_SIZE as f32 / 2.0)),
+                                ..Default::default()
+                            }
+                        ));
+                        valid = false;
+                    }
+                } 
+                
+                if let Some(map_id) = map.settings.warps.west {
+                    if sprite.min.x <= 0.0 {
+                        let width = self.maps.get(&map_id).unwrap().width as f32 * TILE_SIZE as f32;
+                        to_warp.push((
+                            *client_id,
+                            map_id,
+                            WarpParams {
+                                position: Some(Point2D::new(width - SPRITE_SIZE as f32, new_position.y)),
+                                ..Default::default()
+                            }
+                        ));
+                        valid = false;
+                    }
+                }
+                
+                if let Some(map_id) = map.settings.warps.east {
+                    if sprite.max.x >= map_width {
+                        to_warp.push((
+                            *client_id,
+                            map_id,
+                            WarpParams {
+                                position: Some(Point2D::new(0.0, new_position.y)),
+                                ..Default::default()
+                            }
+                        ));
+                        valid = false;
+                    }
+                }  
+
+                // todo: method on map?
+                let map_box = Rect::new(Point2D::zero(), Size2D::new(
                     map.width as f32 * TILE_SIZE as f32,
                     map.height as f32 * TILE_SIZE as f32,
-                ); // todo map method
-                let map_box = Rect::new(Point2D::zero(), map_size).to_box2d();
+                )).to_box2d();
 
-                let valid = map_box.contains_box(&sprite)
-                    && !map.areas.iter().any(|attrib| {
-                        let box2d = Rect::new(attrib.position.into(), attrib.size.into()).to_box2d();
-                        attrib.data == AreaData::Blocked && box2d.intersects(&sprite)
-                    });
-
+                valid &= map_box.contains_box(&sprite);
+                valid &= !map.areas.iter().any(|attrib| {
+                    let box2d = Rect::new(attrib.position.into(), attrib.size.into()).to_box2d();
+                    attrib.data == AreaData::Blocked && box2d.intersects(&sprite)
+                });
+    
                 if valid {
                     player.position = new_position;
                 }
@@ -354,19 +414,35 @@ impl GameServer {
             )
             .to_box2d();
 
-            for attrib in map.areas.iter() {
-                match &attrib.data {
-                    AreaData::Log(message) => {
-                        let box2d = Rect::new(attrib.position.into(), attrib.size.into()).to_box2d();
-                        if box2d.intersects(&sprite) && player.last_message.elapsed() > Duration::from_secs(1) {
-                            let message = ChatMessage::Server(message.clone());
-                            packets.push(Message::only(*id, ServerMessage::Message(message)));
-                            player.last_message = self.time;
+            for area in map.areas.iter() {
+                match &area.data {
+                    // TODO make direction an option and don't reset velocity if it's None
+                    AreaData::Warp(map_id, position, direction) => {
+                        let box2d = Rect::new(area.position.into(), area.size.into()).to_box2d();
+                        if box2d.intersects(&sprite) {
+                            to_warp.push((
+                                *client_id,
+                                *map_id,
+                                WarpParams {
+                                    position: Some((*position).into()),
+                                    direction: Some(*direction),
+                                    velocity: Some(None),
+                                    ..Default::default()
+                                }
+                            ));
                         }
                     }
                     AreaData::Blocked => (),
                 }
             }
+        }
+
+        for packet in packets {
+            self.queue(packet);
+        }
+
+        for (client_id, map_id, params) in to_warp {
+            self.warp_player(client_id, map_id, params);
         }
     }
 
@@ -375,76 +451,82 @@ impl GameServer {
         if !self.players.contains_key(&client_id) {
             return;
         }
-        if !params.initial {
-            let list = self
+
+        // check if we're actually changing maps, or if we're just moving to a new position.
+        if self.players.get(&client_id).unwrap().map != map_id || params.initial {
+            if !params.initial {
+                let list = self
+                    .players
+                    .iter()
+                    .filter(|(&cid, data)| cid != client_id && data.map == map_id)
+                    .map(|(&cid, _)| cid)
+                    .collect();
+
+                self.queue(Message::list(list, ServerMessage::PlayerLeft(client_id)));
+            }
+
+            self.players.get_mut(&client_id).unwrap().map = map_id;
+            let revision = self.maps.get(&map_id).map(|m| m.settings.revision).unwrap_or(0);
+
+            self.queue(Message::only(client_id, ServerMessage::ChangeMap(map_id, revision)));
+
+            let packets = self
                 .players
                 .iter()
-                .filter(|(&cid, data)| cid != client_id && data.map == map_id)
-                .map(|(&cid, _)| cid)
-                .collect();
-
-            self.queue(Message::list(list, ServerMessage::PlayerLeft(client_id)));
-        }
-
-        self.players.get_mut(&client_id).unwrap().map = map_id;
-        let revision = self.maps.get(&map_id).map(|m| m.settings.revision).unwrap_or(0);
-
-        self.queue(Message::only(client_id, ServerMessage::ChangeMap(map_id, revision)));
-
-        let packets = self
-            .players
-            .iter()
-            .filter(|(_, data)| data.map == map_id)
-            .map(|(&cid, data)| ServerMessage::PlayerJoined(cid, data.clone().into()))
-            .collect::<Vec<_>>();
-
-        for packet in packets {
-            self.queue(Message::only(client_id, packet));
-        }
-
-        self.queue(Message::list(
-            self.players
-                .iter()
                 .filter(|(_, data)| data.map == map_id)
-                .map(|(&cid, _)| cid)
-                .collect::<Vec<_>>(),
-            ServerMessage::PlayerJoined(client_id, self.players.get(&client_id).unwrap().clone().into()),
-        ));
+                .map(|(&cid, data)| ServerMessage::PlayerJoined(cid, data.clone().into()))
+                .collect::<Vec<_>>();
 
-        let packet = self
-            .players
-            .get(&client_id)
-            .map(|player| ServerMessage::PlayerMove {
+            
+            for packet in packets {
+                self.queue(Message::only(client_id, packet));
+            }
+            
+            self.queue(Message::list(
+                self.players
+                    .iter()
+                    .filter(|(_, data)| data.map == map_id)
+                    .map(|(&cid, _)| cid)
+                    .collect::<Vec<_>>(),
+                ServerMessage::PlayerJoined(client_id, self.players.get(&client_id).unwrap().clone().into()),
+            ));
+        }
+
+        if let Some(player) = self.players.get_mut(&client_id) {
+            if let Some(v) = params.position { player.position = v; }
+            if let Some(v) = params.direction { player.direction = v; }
+            if let Some(v) = params.velocity { player.velocity = v; }
+
+            let packet = ServerMessage::PlayerMove {
                 client_id,
-                position: params.position.unwrap_or(player.position).into(),
-                direction: params.direction.unwrap_or(player.direction),
-                velocity: params.velocity.unwrap_or(player.velocity).map(Into::into),
-            })
-            .unwrap();
+                position: player.position.into(),
+                direction: player.direction,
+                velocity: player.velocity.map(Into::into),
+            };
 
-        self.queue(Message::list(
-            self.players
-                .iter()
-                .filter(|(_, data)| data.map == map_id)
-                .map(|(&cid, _)| cid)
-                .collect::<Vec<_>>(),
-            packet,
-        ));
+            self.queue(Message::list(
+                self.players
+                    .iter()
+                    .filter(|(_, data)| data.map == map_id)
+                    .map(|(&cid, _)| cid)
+                    .collect::<Vec<_>>(),
+                packet,
+            ));
+        }    
     }
 
     // Specifically created to avoid scope issues
     fn try_recv(&self) -> Option<NetworkSignal> {
-        self.network.read().unwrap().try_recv()
+        self.network.try_recv()
     }
 
-    pub fn queue(&mut self, message: Message) {
-        self.network_queue.push_back(message);
+    pub fn queue(&self, message: Message) {
+        self.network_queue.borrow_mut().push_back(message);
     }
 
-    pub fn send_all(&mut self) {
-        let network = self.network.read().unwrap();
-        for message in self.network_queue.drain(..) {
-            message.write(&network);
+    pub fn maintain(&mut self) {
+        for message in self.network_queue.replace(Default::default()) {
+            message.write(&self.network);
         }
     }
 }
@@ -456,7 +538,7 @@ fn main() -> anyhow::Result<()> {
     #[cfg(not(debug_assertions))]
     simple_logger::init_with_level(log::Level::Warn).unwrap();
 
-    let game_server = GameServer::new()?;
+    let mut game_server = GameServer::new()?;
     game_server.run();
 
     Ok(())

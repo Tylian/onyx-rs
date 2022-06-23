@@ -88,6 +88,17 @@ impl Direction {
     }
 }
 
+impl Display for Direction {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Direction::South => write!(f, "South"),
+            Direction::West => write!(f, "West"),
+            Direction::East => write!(f, "East"),
+            Direction::North => write!(f, "North"),
+        }
+    }
+}
+
 impl From<Direction> for Vector2<f32> {
     fn from(dir: Direction) -> Self {
         dir.offset_f32()
@@ -210,10 +221,10 @@ impl Default for MapSettings {
 
 #[derive(Default, Clone, Serialize, Deserialize, PartialEq, Debug)]
 pub struct BoundryWarps {
-    pub north: Option<String>,
-    pub east: Option<String>,
-    pub south: Option<String>,
-    pub west: Option<String>,
+    pub north: Option<MapId>,
+    pub east: Option<MapId>,
+    pub south: Option<MapId>,
+    pub west: Option<MapId>,
 }
 
 #[derive(Copy, Clone, Serialize, Deserialize, PartialEq, Debug)]
@@ -243,14 +254,14 @@ impl TileAnimation {
 #[derive(Clone, Serialize, Deserialize, PartialEq, Debug)]
 pub enum AreaData {
     Blocked,
-    Log(String),
+    Warp(MapId, Point2<f32>, Direction)
 }
 
 impl AreaData {
     pub fn name(&self) -> &str {
         match self {
             AreaData::Blocked => "Blocked",
-            AreaData::Log(_) => "Log",
+            AreaData::Warp(_, _, _) => "Warp",
         }
     }
 }

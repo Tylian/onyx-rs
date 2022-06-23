@@ -181,13 +181,13 @@ impl AttributeDataEx for AreaData {
     fn text(&self) -> String {
         match self {
             AreaData::Blocked => String::from("Blocked"),
-            AreaData::Log(message) => format!("Log: {}", message),
+            AreaData::Warp(map_id, position, _direction) => format!("Warp to\n{} ({},{})", map_id.0, position.x, position.y),
         }
     }
     fn color(&self) -> Color {
         match self {
             AreaData::Blocked => RED,
-            AreaData::Log(_) => SKYBLUE,
+            AreaData::Warp(_, _, _) => GREEN,
         }
     }
 }
