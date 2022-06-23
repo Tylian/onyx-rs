@@ -3,9 +3,7 @@ use std::collections::HashMap;
 use macroquad::prelude::*;
 use mint::{Point2, Vector2};
 use ndarray::Array2;
-use onyx_common::network::{
-    Area as NetworkArea, Map as NetworkMap, MapLayer, Tile as NetworkTile,
-};
+use onyx_common::network::{Area as NetworkArea, Map as NetworkMap, MapLayer, Tile as NetworkTile};
 use strum::EnumCount;
 use thiserror::Error;
 
@@ -25,27 +23,26 @@ pub enum MapError {
 impl TryFrom<NetworkMap> for Map {
     type Error = MapError;
 
-    fn try_from(value: NetworkMap) -> Result<Self, Self::Error> {
-        let size = (value.width * value.height) as usize;
-        ensure!(
-            value.layers.len() == MapLayer::COUNT,
-            MapError::IncorrectLayers
-        );
+    fn try_from(other: NetworkMap) -> Result<Self, Self::Error> {
+        let size = (other.width * other.height) as usize;
+        ensure!(other.layers.len() == MapLayer::COUNT, MapError::IncorrectLayers);
 
         let mut layers = HashMap::new();
         let mut autotiles = HashMap::new();
-        for (layer, contents) in value.layers {
+        for (layer, contents) in other.layers {
             ensure!(contents.len() == size, MapError::IncorrectSize);
             layers.insert(layer, contents.map(|t| t.map(Into::into)));
             autotiles.insert(layer, Array2::default(contents.dim()));
         }
 
         let mut map = Self {
-            width: value.width,
-            height: value.height,
+            id: other.id,
+            width: other.width,
+            height: other.height,
+            settings: other.settings,
             layers,
             autotiles,
-            areas: value.areas.into_iter().map(Into::into).collect(),
+            areas: other.areas.into_iter().map(Into::into).collect(),
         };
 
         map.update_autotile_cache();
@@ -55,21 +52,23 @@ impl TryFrom<NetworkMap> for Map {
 
 // Note: It is considered an unrecoverable error to have a map that has an invalid size
 impl From<Map> for NetworkMap {
-    fn from(value: Map) -> Self {
-        let size = (value.width * value.height) as usize;
-        assert_eq!(value.layers.len(), MapLayer::COUNT);
+    fn from(other: Map) -> Self {
+        let size = (other.width * other.height) as usize;
+        assert_eq!(other.layers.len(), MapLayer::COUNT);
 
         let mut layers = HashMap::new();
-        for (layer, contents) in value.layers {
+        for (layer, contents) in other.layers {
             assert_eq!(contents.len(), size);
             layers.insert(layer, contents.map(|t| t.map(Into::into)));
         }
 
         Self {
-            width: value.width,
-            height: value.height,
+            id: other.id,
+            width: other.width,
+            height: other.height,
+            settings: other.settings,
             layers,
-            areas: value.areas.into_iter().map(Into::into).collect(),
+            areas: other.areas.into_iter().map(Into::into).collect(),
         }
     }
 }
@@ -97,12 +96,7 @@ impl From<NetworkTile> for Tile {
 impl From<NetworkArea> for Area {
     fn from(other: NetworkArea) -> Self {
         Self {
-            position: Rect::new(
-                other.position.x,
-                other.position.y,
-                other.size.x,
-                other.size.y,
-            ),
+            position: Rect::new(other.position.x, other.position.y, other.size.x, other.size.y),
             data: other.data,
         }
     }
@@ -111,8 +105,14 @@ impl From<NetworkArea> for Area {
 impl From<Area> for NetworkArea {
     fn from(other: Area) -> Self {
         Self {
-            position: Point2 { x: other.position.x, y: other.position.y },
-            size: Vector2 { x: other.position.w, y: other.position.h },
+            position: Point2 {
+                x: other.position.x,
+                y: other.position.y,
+            },
+            size: Vector2 {
+                x: other.position.w,
+                y: other.position.h,
+            },
             data: other.data,
         }
     }

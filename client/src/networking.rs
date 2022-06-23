@@ -65,7 +65,9 @@ impl State {
 
 impl NetworkClient {
     pub fn new() -> Self {
-        Self { state: Arc::new(State::new()) }
+        Self {
+            state: Arc::new(State::new()),
+        }
     }
 
     pub fn connect(&mut self, addr: impl ToRemoteAddr) {
@@ -76,8 +78,7 @@ impl NetworkClient {
             state.set_status(NetworkStatus::Connecting);
 
             let (handler, listener) = node::split::<()>();
-            let (server_id, _local_addr) =
-                handler.network().connect(Transport::FramedTcp, addr).unwrap();
+            let (server_id, _local_addr) = handler.network().connect(Transport::FramedTcp, addr).unwrap();
 
             let (_task, mut receive) = listener.enqueue();
 
@@ -89,8 +90,7 @@ impl NetworkClient {
                         }
                         StoredNetEvent::Accepted(_, _) => unreachable!(),
                         StoredNetEvent::Message(_, bytes) => {
-                            let message =
-                                bincode::deserialize(&bytes).unwrap();
+                            let message = bincode::deserialize(&bytes).unwrap();
                             state.push_buffer(message);
                         }
                         StoredNetEvent::Disconnected(_) => {

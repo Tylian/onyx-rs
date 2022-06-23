@@ -1,55 +1,103 @@
-use crate::GameResult;
+use std::{
+    cell::{Ref, RefCell},
+    collections::HashMap,
+    ffi::OsStr,
+};
+
+use anyhow::{anyhow, Result};
 use macroquad::prelude::*;
 
 #[derive(Clone)]
-pub struct Assets {
-    pub tileset: Texture2D,
-    pub sprites: Texture2D,
-    pub font: Font,
-    pub egui: EguiTextures,
+pub struct DualTexture {
+    pub name: String,
+    pub texture: Texture2D,
+    pub egui: egui::TextureHandle,
 }
 
-#[derive(Default, Clone)]
-pub struct EguiTextures {
-    pub tileset: Option<egui::TextureHandle>,
-    pub sprites: Option<egui::TextureHandle>,
+impl DualTexture {
+    fn from_image(name: &str, image: &Image) -> Self {
+        let texture = Texture2D::from_image(image);
+        texture.set_filter(FilterMode::Nearest);
+
+        let mut egui: Option<egui::TextureHandle> = None;
+        egui_macroquad::cfg(|ctx| {
+            let size = [image.width(), image.height()];
+            let image = egui::ColorImage::from_rgba_unmultiplied(size, &image.bytes);
+            egui = Some(ctx.load_texture(name, image));
+        });
+
+        Self {
+            name: name.to_string(),
+            texture,
+            egui: egui.expect("Could not convert texture to egui, impossible??"),
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct Assets {
+    tilesets: HashMap<String, Image>,
+    pub tileset: RefCell<DualTexture>,
+    pub sprites: DualTexture,
+    pub font: Font,
 }
 
 impl Assets {
-    pub async fn load() -> GameResult<Self> {
-        let tileset = load_texture("assets/tileset1.png").await?;
-        let sprites = load_texture("assets/sprites.png").await?;
+    pub async fn load() -> Result<Self> {
+        let sprites = load_image("assets/sprites.png").await?;
+        let sprites = DualTexture::from_image("sprites.png", &sprites);
+        let font = load_ttf_font("assets/LiberationMono-Regular.ttf").await?;
 
-        tileset.set_filter(FilterMode::Nearest);
-        sprites.set_filter(FilterMode::Nearest);
+        let tilesets = Assets::load_tilesets().await?;
+        // unwrap: Assets::load_tilesets ensures that at least "default.png" always exists
+        let tileset = DualTexture::from_image("default.png", tilesets.get("default.png").unwrap());
 
         Ok(Self {
-            tileset,
+            tilesets,
+            tileset: RefCell::new(tileset),
             sprites,
-            font: load_ttf_font("assets/LiberationMono-Regular.ttf").await?,
-            egui: EguiTextures::default(),
+            font,
         })
     }
 
-    pub fn load_egui(&mut self, ctx: &egui::Context) {
-        self.egui.sprites.get_or_insert_with(|| {
-            Self::load_egui_texture(ctx, "sprites", self.sprites)
-        });
-        self.egui.tileset.get_or_insert_with(|| {
-            Self::load_egui_texture(ctx, "tileset", self.tileset)
-        });
+    async fn load_tilesets() -> Result<HashMap<String, Image>> {
+        let mut tilesets = HashMap::new();
+        for entry in std::fs::read_dir("./assets/tilesets")? {
+            let entry = entry?;
+            let path = entry.path();
+            if path.is_file() && path.extension().and_then(OsStr::to_str) == Some("png") {
+                debug!("Loading tileset {}", path.display());
+                let image = load_image(&path.to_string_lossy()).await?;
+                let name = path.file_name().unwrap().to_string_lossy();
+                tilesets.insert(name.to_string(), image);
+            }
+        }
+
+        if !tilesets.contains_key("default.png") {
+            Err(anyhow!(
+                "the file \"./assets/tilesets/default.png\" does not exist, but it is required to exist"
+            ))
+        } else {
+            Ok(tilesets)
+        }
     }
 
-    fn load_egui_texture(
-        ctx: &egui::Context,
-        name: &str,
-        texture: Texture2D,
-    ) -> egui::TextureHandle {
-        use egui::ColorImage;
+    pub fn tileset(&self) -> Ref<'_, DualTexture> {
+        self.tileset.borrow()
+    }
 
-        let image = texture.get_texture_data();
-        let size = [image.width(), image.height()];
-        let image = ColorImage::from_rgba_unmultiplied(size, &image.bytes);
-        ctx.load_texture(name, image)
+    pub fn tilesets(&self) -> Vec<&str> {
+        self.tilesets.keys().map(|x| &**x).collect()
+    }
+
+    pub fn set_tileset(&self, name: &str) -> Result<()> {
+        if let Some(image) = self.tilesets.get(name) {
+            if self.tileset.borrow().name != name {
+                self.tileset.replace(DualTexture::from_image(name, image));
+            }
+            Ok(())
+        } else {
+            Err(anyhow!("not found"))
+        }
     }
 }

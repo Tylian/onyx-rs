@@ -17,15 +17,17 @@ impl From<u64> for ClientId {
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Debug)]
 pub enum ClientMessage {
+    Hello(String, u32),
     Move {
         position: Point2<f32>,
         direction: Direction,
         velocity: Option<Vector2<f32>>,
     },
-    Hello(String, u32),
     Message(String),
     RequestMap,
-    SaveMap(Map),
+    SaveMap(Box<Map>),
+    Warp(MapId, Option<Point2<f32>>),
+    MapEditor,
 }
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Debug)]
@@ -33,14 +35,22 @@ pub enum ServerMessage {
     Hello(ClientId),
     PlayerJoined(ClientId, PlayerData),
     PlayerLeft(ClientId),
-    PlayerMoved {
+    PlayerMove {
         client_id: ClientId,
         position: Point2<f32>,
         direction: Direction,
         velocity: Option<Vector2<f32>>,
     },
     Message(ChatMessage),
-    ChangeMap(Map),
+    ChangeMap(MapId, u32),
+    MapData(Box<Map>),
+    MapEditor {
+        maps: HashMap<MapId, String>,
+        id: MapId,
+        width: u32,
+        height: u32,
+        settings: MapSettings,
+    },
 }
 
 #[derive(Copy, Clone, Serialize, Deserialize, PartialEq, Debug)]
@@ -95,6 +105,7 @@ pub struct PlayerData {
     pub name: String,
     pub position: Point2<f32>,
     pub sprite: u32,
+    pub direction: Direction,
 }
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Debug)]
@@ -103,18 +114,7 @@ pub enum ChatMessage {
     Say(String),
 }
 
-#[derive(
-    Copy,
-    Clone,
-    Serialize,
-    Deserialize,
-    PartialEq,
-    Debug,
-    Eq,
-    Hash,
-    EnumCount,
-    EnumIter,
-)]
+#[derive(Copy, Clone, Serialize, Deserialize, PartialEq, Debug, Eq, Hash, EnumCount, EnumIter)]
 pub enum MapLayer {
     Ground,
     Mask,
@@ -139,27 +139,81 @@ impl Display for MapLayer {
     }
 }
 
+#[derive(Default, Serialize, Deserialize, PartialEq, Debug, Eq, Hash, Clone, Copy)]
+#[serde(transparent)]
+pub struct MapId(pub u64);
+
+impl From<u64> for MapId {
+    fn from(id: u64) -> Self {
+        Self(id)
+    }
+}
+
+impl MapId {
+    /// Returns the special, must always exist map
+    pub fn start() -> MapId {
+        MapId(0)
+    }
+}
+
 #[derive(Default, Clone, Serialize, Deserialize, PartialEq, Debug)]
 pub struct Map {
+    pub id: MapId,
     pub width: u32,
     pub height: u32,
+    pub settings: MapSettings,
     pub layers: HashMap<MapLayer, Array2<Option<Tile>>>,
     pub areas: Vec<Area>,
 }
 
 impl Map {
-    pub fn new(width: u32, height: u32) -> Self {
+    pub fn new(id: MapId, width: u32, height: u32) -> Self {
+        let settings = MapSettings::default();
         let mut layers = HashMap::new();
+        let areas = Vec::new();
 
         for layer in MapLayer::iter() {
-            layers.insert(
-                layer,
-                Array2::default((width as usize, height as usize)),
-            );
+            layers.insert(layer, Array2::default((width as usize, height as usize)));
         }
 
-        Self { width, height, layers, areas: Vec::new() }
+        Self {
+            id,
+            width,
+            height,
+            settings,
+            layers,
+            areas,
+        }
     }
+}
+
+#[derive(Clone, Serialize, Deserialize, PartialEq, Debug)]
+pub struct MapSettings {
+    pub name: String,
+    pub tileset: String,
+    pub music: Option<String>,
+    pub warps: BoundryWarps,
+    pub revision: u32,
+}
+
+impl Default for MapSettings {
+    fn default() -> Self {
+        Self {
+            name: String::new(),
+            tileset: String::from("default.png"),
+            music: None,
+            warps: BoundryWarps::default(),
+            revision: 0,
+        }
+    }
+}
+
+#[derive(Default, Clone, Serialize, Deserialize, PartialEq, Debug)]
+pub struct BoundryWarps {
+    pub north: Option<String>,
+    pub east: Option<String>,
+    pub south: Option<String>,
+    pub west: Option<String>,
 }
 
 #[derive(Copy, Clone, Serialize, Deserialize, PartialEq, Debug)]

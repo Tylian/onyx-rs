@@ -15,9 +15,11 @@ pub enum GameSignal {
 
 #[derive(Clone)]
 pub enum MessageTarget {
-    Exactly(ClientId),
-    Everyone,
-    EveryoneExcept(ClientId),
+    Only(ClientId),
+    Exclude(ClientId),
+    List(Vec<ClientId>),
+    Nobody,
+    Everybody,
 }
 
 #[derive(Clone)]
@@ -27,18 +29,37 @@ pub struct Message {
 }
 
 impl Message {
-    pub fn to(client_id: ClientId, message: ServerMessage) -> Self {
-        Self { target: MessageTarget::Exactly(client_id), message }
+    pub fn only(client_id: ClientId, message: ServerMessage) -> Self {
+        Self {
+            target: MessageTarget::Only(client_id),
+            message,
+        }
     }
-    pub fn everyone(message: ServerMessage) -> Self {
-        Self { target: MessageTarget::Everyone, message }
+    pub fn everybody(message: ServerMessage) -> Self {
+        Self {
+            target: MessageTarget::Everybody,
+            message,
+        }
     }
-    pub fn everyone_except(
-        client_id: ClientId,
-        message: ServerMessage,
-    ) -> Self {
-        Self { target: MessageTarget::EveryoneExcept(client_id), message }
+    pub fn list(list: Vec<ClientId>, message: ServerMessage) -> Self {
+        Self {
+            target: MessageTarget::List(list),
+            message,
+        }
     }
+    pub fn exclude(client_id: ClientId, message: ServerMessage) -> Self {
+        Self {
+            target: MessageTarget::Exclude(client_id),
+            message,
+        }
+    }
+    pub fn nobody(message: ServerMessage) -> Self {
+        Self {
+            target: MessageTarget::Nobody,
+            message,
+        }
+    }
+
     pub fn write(self, networking: &Networking) {
         networking.send(self.target, self.message);
     }
@@ -61,7 +82,10 @@ impl Networking {
         let (tx1, rx1) = mpsc::channel::<GameSignal>(); // game -> networking
         let (tx2, rx2) = mpsc::channel::<NetworkSignal>(); // game <- networking
 
-        Self { game: (tx1, rx2), network: Some((tx2, rx1)) }
+        Self {
+            game: (tx1, rx2),
+            network: Some((tx2, rx1)),
+        }
     }
 
     pub fn listen(&mut self, addr: impl ToRemoteAddr) {
@@ -70,10 +94,7 @@ impl Networking {
 
         thread::spawn(move || {
             let (handler, listener) = node::split::<()>();
-            handler
-                .network()
-                .listen(Transport::FramedTcp, addr.clone())
-                .unwrap();
+            handler.network().listen(Transport::FramedTcp, addr.clone()).unwrap();
 
             info!("Listening on {}", addr);
 
@@ -85,33 +106,32 @@ impl Networking {
             'network: loop {
                 for signal in rx.try_iter() {
                     match signal {
-                        GameSignal::Send(qualifier, data) => {
+                        GameSignal::Send(target, data) => {
                             let bytes = bincode::serialize(&data).unwrap();
-                            match qualifier {
-                                MessageTarget::Exactly(client_id) => {
-                                    if let Some(endpoint) =
-                                        clients.get_by_right(&client_id)
-                                    {
-                                        handler
-                                            .network()
-                                            .send(*endpoint, &bytes);
+                            match target {
+                                MessageTarget::Only(cid) => {
+                                    if let Some(&endpoint) = clients.get_by_right(&cid) {
+                                        handler.network().send(endpoint, &bytes);
                                     }
                                 }
-                                MessageTarget::Everyone => {
-                                    for endpoint in clients.left_values() {
-                                        handler
-                                            .network()
-                                            .send(*endpoint, &bytes);
-                                    }
-                                }
-                                MessageTarget::EveryoneExcept(exclude) => {
-                                    for (endpoint, client_id) in clients.iter()
-                                    {
-                                        if *client_id != exclude {
-                                            handler
-                                                .network()
-                                                .send(*endpoint, &bytes);
+                                MessageTarget::Exclude(exclude) => {
+                                    for (&endpoint, &cid) in clients.iter() {
+                                        if cid != exclude {
+                                            handler.network().send(endpoint, &bytes);
                                         }
+                                    }
+                                }
+                                MessageTarget::List(list) => {
+                                    for (&endpoint, &cid) in clients.iter() {
+                                        if list.contains(&cid) {
+                                            handler.network().send(endpoint, &bytes);
+                                        }
+                                    }
+                                }
+                                MessageTarget::Nobody => (),
+                                MessageTarget::Everybody => {
+                                    for &endpoint in clients.left_values() {
+                                        handler.network().send(endpoint, &bytes);
                                     }
                                 }
                             }
@@ -139,21 +159,18 @@ impl Networking {
                             );
                         }
                         StoredNetEvent::Message(endpoint, bytes) => {
-                            let message =
-                                bincode::deserialize(&bytes).unwrap();
+                            let message = bincode::deserialize(&bytes).unwrap();
                             let client_id = clients
                                 .get_by_left(&endpoint)
                                 .expect("receiving from an endpoint that doesn't have an id??");
-                            let signal =
-                                NetworkSignal::Message(*client_id, message);
+                            let signal = NetworkSignal::Message(*client_id, message);
                             tx.send(signal).unwrap();
                         }
                         StoredNetEvent::Disconnected(endpoint) => {
                             let client_id = clients
                                 .get_by_left(&endpoint)
                                 .expect("receiving from an endpoint that doesn't have an id??");
-                            let signal =
-                                NetworkSignal::Disconnected(*client_id);
+                            let signal = NetworkSignal::Disconnected(*client_id);
                             tx.send(signal).unwrap();
                             clients.remove_by_left(&endpoint);
                             info!(

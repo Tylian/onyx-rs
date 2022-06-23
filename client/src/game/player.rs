@@ -78,12 +78,10 @@ impl Player {
 
     pub fn draw_text(&self, assets: &Assets, position: Vec2) {
         const FONT_SIZE: u16 = 16;
-        let measurements =
-            measure_text(&self.name, Some(assets.font), FONT_SIZE, 1.0);
+        let measurements = measure_text(&self.name, Some(assets.font), FONT_SIZE, 1.0);
 
         // ? The text is drawn with the baseline being the supplied y
-        let text_offset =
-            ((SPRITE_SIZE as f32 - measurements.width) / 2.0, -3.0).into();
+        let text_offset = ((SPRITE_SIZE as f32 - measurements.width) / 2.0, -3.0).into();
 
         let pos = position + text_offset;
         draw_text_shadow(
@@ -111,11 +109,14 @@ impl Player {
         );
 
         draw_texture_ex(
-            assets.sprites,
+            assets.sprites.texture,
             position.x,
             position.y,
             WHITE,
-            DrawTextureParams { source: Some(source), ..Default::default() },
+            DrawTextureParams {
+                source: Some(source),
+                ..Default::default()
+            },
         );
     }
 }

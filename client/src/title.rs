@@ -1,6 +1,6 @@
-use std::{fs, path::PathBuf};
+use std::{fs, path::PathBuf, rc::Rc};
 
-use macroquad::prelude::*;
+use macroquad::{color, prelude::*};
 use onyx_common::network::ClientMessage;
 use serde::{Deserialize, Serialize};
 
@@ -59,14 +59,7 @@ fn draw_ui(ctx: &egui::Context, state: &mut UiState, assets: &Assets) {
                             .speed(0.1),
                     );
 
-                    if let Some(texture) = &assets.egui.sprites {
-                        sprite_preview(
-                            ui,
-                            texture,
-                            time,
-                            state.settings.sprite,
-                        );
-                    }
+                    sprite_preview(ui, &assets.sprites.egui, time, state.settings.sprite);
                 });
                 ui.end_row();
             });
@@ -77,10 +70,7 @@ fn draw_ui(ctx: &egui::Context, state: &mut UiState, assets: &Assets) {
                     network.connect(state.settings.address.clone());
 
                     // ! TODO
-                    network.send(ClientMessage::Hello(
-                        state.settings.name.clone(),
-                        state.settings.sprite,
-                    ));
+                    network.send(ClientMessage::Hello(state.settings.name.clone(), state.settings.sprite));
                     state.network = Some(network);
                 }
                 if is_connecting {
@@ -91,21 +81,17 @@ fn draw_ui(ctx: &egui::Context, state: &mut UiState, assets: &Assets) {
     });
 }
 
-pub async fn title_screen(assets: Assets) -> NetworkClient {
+pub async fn title_screen(assets: Rc<Assets>) -> NetworkClient {
     let path = PathBuf::from("./settings.bin");
     let settings = fs::read(path)
         .ok()
         .and_then(|bytes| bincode::deserialize(&bytes).ok())
         .unwrap_or_default();
 
-    let mut state = UiState { settings, network: None };
-
-    // let mut state = UiState {
-    //     address: "66.228.47.52:3042".to_owned(),
-    //     name: "Player".to_owned(),
-    //     sprite: 0,
-    //     network: None,
-    // };
+    let mut state = UiState {
+        settings,
+        network: None,
+    };
 
     loop {
         // update
@@ -130,7 +116,7 @@ pub async fn title_screen(assets: Assets) -> NetworkClient {
         }
 
         // draw
-        clear_background(BLACK);
+        clear_background(color::BLACK);
         egui_macroquad::draw();
 
         next_frame().await;

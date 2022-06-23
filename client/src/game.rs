@@ -1,11 +1,9 @@
 use std::collections::HashMap;
+use std::rc::Rc;
 
 use glam::{vec2, IVec2, Vec2};
 use macroquad::{color, prelude::*};
-use onyx_common::network::{
-    AreaData, ChatMessage, ClientId, ClientMessage, Direction, MapLayer,
-    ServerMessage,
-};
+use onyx_common::network::{AreaData, ChatMessage, ClientId, ClientMessage, Direction, MapId, MapLayer, ServerMessage};
 use onyx_common::{RUN_SPEED, SPRITE_SIZE, TILE_SIZE, WALK_SPEED};
 
 use self::player::{Animation, Player, Tween};
@@ -13,9 +11,9 @@ use crate::assets::Assets;
 use crate::map::{draw_area, Area, Map};
 use crate::networking::{NetworkClient, NetworkStatus};
 use crate::ui::{MapEditor, MapEditorTab, MapEditorWants};
+use crate::utils::draw_text_shadow;
 
 mod player;
-
 struct UiState {
     map_editor: MapEditor,
     map_editor_shown: bool,
@@ -43,7 +41,7 @@ impl Default for UiState {
 }
 
 struct GameState {
-    assets: Assets,
+    assets: Rc<Assets>,
     network: NetworkClient,
     players: HashMap<ClientId, Player>,
     local_player: Option<ClientId>,
@@ -51,22 +49,24 @@ struct GameState {
     ui: UiState,
     start_time: f64,
     time: f64,
+    clip_rect: Rect,
     camera: Camera2D,
     last_movement: Option<(Direction, f64)>,
 }
 
 impl GameState {
-    fn new(network: NetworkClient, assets: Assets) -> Self {
+    fn new(network: NetworkClient, assets: Rc<Assets>) -> Self {
         Self {
             assets,
             network,
             players: Default::default(),
             local_player: Default::default(),
-            map: Map::new(20, 15),
+            map: Map::new(MapId(0), 20, 15),
             ui: Default::default(),
             last_movement: Default::default(),
             start_time: get_time(),
             time: get_time(),
+            clip_rect: Rect::new(0.0, 0.0, screen_width(), screen_height()),
             camera: Camera2D::default(),
         }
     }
@@ -99,8 +99,7 @@ impl GameState {
     fn update_players(&mut self) {
         for player in self.players.values_mut() {
             if let Some(tween) = player.tween.as_mut() {
-                let offset =
-                    tween.velocity * (self.time - tween.last_update) as f32;
+                let offset = tween.velocity * (self.time - tween.last_update) as f32;
                 let new_position = player.position + offset;
                 // only block on the bottom half of the sprite, feels better
                 let sprite_rect = Rect::new(
@@ -115,10 +114,11 @@ impl GameState {
                     && sprite_rect.top() >= 0.0
                     && sprite_rect.right() < map_width
                     && sprite_rect.bottom() < map_height
-                    && !self.map.areas.iter().any(|attrib| {
-                        attrib.data == AreaData::Blocked
-                            && attrib.position.overlaps(&sprite_rect)
-                    });
+                    && !self
+                        .map
+                        .areas
+                        .iter()
+                        .any(|attrib| attrib.data == AreaData::Blocked && attrib.position.overlaps(&sprite_rect));
 
                 if valid {
                     player.position = new_position;
@@ -144,8 +144,7 @@ impl GameState {
                     self.local_player = Some(id);
                 }
                 ServerMessage::PlayerJoined(id, player_data) => {
-                    self.players
-                        .insert(id, Player::from_network(id, player_data));
+                    self.players.insert(id, Player::from_network(id, player_data));
                 }
                 ServerMessage::PlayerLeft(id) => {
                     // self.players.retain(|p| p.id != id);
@@ -154,15 +153,12 @@ impl GameState {
                 ServerMessage::Message(message) => {
                     self.ui.chat_messages.push(message);
                 }
-                ServerMessage::ChangeMap(remote) => {
-                    match remote.try_into() {
-                        Ok(map) => self.map = map,
-                        Err(err) => {
-                            log::error!("Error converting remote map: {err:?}")
-                        }
-                    };
+                ServerMessage::ChangeMap(_id, _revision) => {
+                    self.players.clear();
+                    self.ui.map_editor_shown = false;
+                    self.network.send(ClientMessage::RequestMap);
                 }
-                ServerMessage::PlayerMoved {
+                ServerMessage::PlayerMove {
                     client_id,
                     position,
                     direction,
@@ -177,13 +173,36 @@ impl GameState {
                                 start: time,
                                 speed: velocity.length() as f64,
                             };
-                            player.tween =
-                                Some(Tween { velocity, last_update: time });
+                            player.tween = Some(Tween {
+                                velocity,
+                                last_update: time,
+                            });
                         } else {
                             player.animation = Animation::Standing;
                             player.tween = None;
                         }
                     }
+                }
+                ServerMessage::MapData(remote) => {
+                    match Map::try_from(*remote) {
+                        Ok(map) => self.map = map,
+                        Err(err) => {
+                            log::error!("Error converting remote map: {err:?}")
+                        }
+                    };
+                    self.assets.set_tileset(&self.map.settings.tileset).unwrap();
+                }
+                ServerMessage::MapEditor {
+                    id,
+                    width,
+                    height,
+                    settings,
+                    maps,
+                } => {
+                    self.ui.map_editor.set_maps(maps);
+                    self.ui.map_editor.set_map_size(width, height);
+                    self.ui.map_editor.set_settings(id, settings);
+                    self.ui.map_editor_shown = true;
                 }
             }
         }
@@ -218,16 +237,10 @@ impl GameState {
                                 for message in &self.ui.chat_messages {
                                     match message {
                                         ChatMessage::Server(text) => {
-                                            ui.colored_label(
-                                                Color32::YELLOW,
-                                                format!("[Server] {}", text),
-                                            );
+                                            ui.colored_label(Color32::GOLD, format!("[Server] {}", text));
                                         }
                                         ChatMessage::Say(text) => {
-                                            ui.colored_label(
-                                                Color32::WHITE,
-                                                format!("[Say] {}", text),
-                                            );
+                                            ui.colored_label(Color32::WHITE, format!("[Say] {}", text));
                                         }
                                     };
                                 }
@@ -246,9 +259,7 @@ impl GameState {
                                     ui.colored_label(Color32::WHITE, "Say:");
                                 });
                                 strip.cell(|ui| {
-                                    text = Some(ui.text_edit_singleline(
-                                        &mut self.ui.chat_message,
-                                    ));
+                                    text = Some(ui.text_edit_singleline(&mut self.ui.chat_message));
                                 });
                                 strip.cell(|ui| {
                                     button = Some(ui.button("Send"));
@@ -258,9 +269,7 @@ impl GameState {
                 });
 
             if let Some((text, button)) = text.zip(button) {
-                if (text.lost_focus() && ui.input().key_pressed(Key::Enter))
-                    || button.clicked()
-                {
+                if (text.lost_focus() && ui.input().key_pressed(Key::Enter)) || button.clicked() {
                     let message = std::mem::take(&mut self.ui.chat_message);
                     self.process_message(message);
                     text.request_focus();
@@ -271,30 +280,48 @@ impl GameState {
 
     fn update_ui(&mut self, ctx: &egui::Context) {
         use egui::*;
+
+        // Show egui debugging
+        #[cfg(debug_assertions)]
+        if false {
+            Window::new("🔧 Setting")
+                .vscroll(true)
+                .show(ctx, |ui| ctx.settings_ui(ui));
+            Window::new("🔍 Inspection")
+                .vscroll(true)
+                .show(ctx, |ui| ctx.inspection_ui(ui));
+            Window::new("🗺 Texture")
+                .vscroll(true)
+                .show(ctx, |ui| ctx.texture_ui(ui));
+            Window::new("📝 Memory").vscroll(true).show(ctx, |ui| ctx.memory_ui(ui));
+            Window::new("🖊 Style").vscroll(true).show(ctx, |ui| ctx.style_ui(ui));
+        }
+
         self.chat_window(ctx);
 
         if self.ui.map_editor_shown {
             Window::new("📝 Map Editor").show(ctx, |ui| {
                 match self.ui.map_editor.show(ui, &self.assets).wants() {
                     MapEditorWants::Nothing => (), // yolo
-                    MapEditorWants::SaveMap => {
-                        let data = self.map.clone().into();
+                    MapEditorWants::Save => {
+                        let (id, settings) = self.ui.map_editor.map_settings();
+                        self.map.id = id;
+                        self.map.settings = settings.clone();
+
+                        let data = Box::new(self.map.clone().into());
                         self.network.send(ClientMessage::SaveMap(data));
                         self.ui.map_editor_shown = false;
                     }
-                    MapEditorWants::ResizeMap => {
-                        let (width, height) = self.ui.map_editor.map_size();
-                        self.map = self.map.resize(width, height);
-                    }
-
-                    MapEditorWants::ReloadMap => {
+                    MapEditorWants::Close => {
                         self.network.send(ClientMessage::RequestMap);
                         self.ui.map_editor_shown = false;
                     }
-                    MapEditorWants::GetMapSize => {
-                        self.ui
-                            .map_editor
-                            .set_map_size(self.map.width, self.map.height);
+                    MapEditorWants::ResizeMap(width, height) => {
+                        self.map = self.map.resize(*width, *height);
+                    }
+                    MapEditorWants::Warp(id) => {
+                        self.network.send(ClientMessage::Warp(*id, None));
+                        self.ui.map_editor_shown = false;
                     }
                 }
             });
@@ -309,22 +336,14 @@ impl GameState {
 
     fn update_input(&mut self) {
         if !self.ui.block_keyboard {
-            if let Some(player) =
-                self.local_player.and_then(|id| self.players.get_mut(&id))
-            {
-                let movement = if is_key_down(KeyCode::Up)
-                    || is_key_down(KeyCode::W)
-                {
+            if let Some(player) = self.local_player.and_then(|id| self.players.get_mut(&id)) {
+                let movement = if is_key_down(KeyCode::Up) || is_key_down(KeyCode::W) {
                     Some(Direction::North)
-                } else if is_key_down(KeyCode::Down) || is_key_down(KeyCode::S)
-                {
+                } else if is_key_down(KeyCode::Down) || is_key_down(KeyCode::S) {
                     Some(Direction::South)
-                } else if is_key_down(KeyCode::Left) || is_key_down(KeyCode::A)
-                {
+                } else if is_key_down(KeyCode::Left) || is_key_down(KeyCode::A) {
                     Some(Direction::West)
-                } else if is_key_down(KeyCode::Right)
-                    || is_key_down(KeyCode::D)
-                {
+                } else if is_key_down(KeyCode::Right) || is_key_down(KeyCode::D) {
                     Some(Direction::East)
                 } else {
                     None
@@ -340,13 +359,16 @@ impl GameState {
                 if cache != self.last_movement {
                     self.last_movement = cache;
                     let velocity = if let Some(direction) = movement {
-                        let velocity =
-                            Vec2::from(direction.offset_f32()) * speed as f32;
+                        let velocity = Vec2::from(direction.offset_f32()) * speed as f32;
 
-                        player.animation =
-                            Animation::Walking { start: self.time, speed };
-                        player.tween =
-                            Some(Tween { velocity, last_update: self.time });
+                        player.animation = Animation::Walking {
+                            start: self.time,
+                            speed,
+                        };
+                        player.tween = Some(Tween {
+                            velocity,
+                            last_update: self.time,
+                        });
                         player.direction = direction;
 
                         Some(velocity.into())
@@ -366,7 +388,7 @@ impl GameState {
 
             // Admin
             if is_key_pressed(KeyCode::F1) {
-                self.ui.map_editor_shown = true;
+                self.network.send(ClientMessage::MapEditor);
             }
         }
 
@@ -375,21 +397,16 @@ impl GameState {
             if self.ui.map_editor_shown {
                 match self.ui.map_editor.tab() {
                     MapEditorTab::Tileset => {
-                        let mouse_button =
-                            if is_mouse_button_down(MouseButton::Left) {
-                                Some(MouseButton::Left)
-                            } else if is_mouse_button_down(MouseButton::Right)
-                            {
-                                Some(MouseButton::Right)
-                            } else {
-                                None
-                            };
+                        let mouse_button = if is_mouse_button_down(MouseButton::Left) {
+                            Some(MouseButton::Left)
+                        } else if is_mouse_button_down(MouseButton::Right) {
+                            Some(MouseButton::Right)
+                        } else {
+                            None
+                        };
 
                         if let Some(mouse_button) = mouse_button {
-                            let mouse_position = self
-                                .camera
-                                .screen_to_world(mouse_position().into())
-                                .as_i32();
+                            let mouse_position = self.camera.screen_to_world(mouse_position().into()).as_i32();
                             let tile_position = mouse_position / TILE_SIZE;
 
                             let current_tile = (mouse_button, tile_position);
@@ -399,16 +416,11 @@ impl GameState {
                                     MouseButton::Left => {
                                         let layer = self.ui.map_editor.layer();
                                         let tile = self.ui.map_editor.tile();
-                                        self.map.set_tile(
-                                            layer,
-                                            tile_position,
-                                            tile,
-                                        );
+                                        self.map.set_tile(layer, tile_position, tile);
                                     }
                                     MouseButton::Right => {
                                         let layer = self.ui.map_editor.layer();
-                                        self.map
-                                            .clear_tile(layer, tile_position);
+                                        self.map.clear_tile(layer, tile_position);
                                     }
                                     _ => (),
                                 };
@@ -419,13 +431,9 @@ impl GameState {
                         }
                     }
                     MapEditorTab::Areas => {
-                        let mouse_position = self
-                            .camera
-                            .screen_to_world(mouse_position().into());
+                        let mouse_position = self.camera.screen_to_world(mouse_position().into());
                         if is_mouse_button_pressed(MouseButton::Right) {
-                            for (i, attrib) in
-                                self.map.areas.iter().enumerate().rev()
-                            {
+                            for (i, attrib) in self.map.areas.iter().enumerate().rev() {
                                 if attrib.position.contains(mouse_position) {
                                     self.map.areas.swap_remove(i);
                                     break;
@@ -433,18 +441,13 @@ impl GameState {
                             }
                         }
 
-                        let mouse_down =
-                            is_mouse_button_down(MouseButton::Left);
+                        let mouse_down = is_mouse_button_down(MouseButton::Left);
                         if self.ui.drag_start.is_some() && !mouse_down {
-                            let drag_start =
-                                self.ui.drag_start.take().unwrap();
+                            let drag_start = self.ui.drag_start.take().unwrap();
                             let start = drag_start.min(mouse_position);
-                            let size = (drag_start.max(mouse_position)
-                                - start)
-                                .max(vec2(6.0, 6.0)); // assume that 6x6 is the smallest you can make.
+                            let size = (drag_start.max(mouse_position) - start).max(vec2(6.0, 6.0)); // assume that 6x6 is the smallest you can make.
 
-                            let drag_rect =
-                                Rect::new(start.x, start.y, size.x, size.y);
+                            let drag_rect = Rect::new(start.x, start.y, size.x, size.y);
 
                             self.map.areas.push(Area {
                                 position: drag_rect,
@@ -454,24 +457,21 @@ impl GameState {
                             self.ui.drag_start = Some(mouse_position);
                         };
                     }
-                    MapEditorTab::Settings => (),
+                    MapEditorTab::Settings | MapEditorTab::Tools => (),
                 }
             }
         }
     }
 
     fn update_camera(&mut self) {
-        if let Some(player) =
-            self.local_player.and_then(|id| self.players.get_mut(&id))
-        {
+        if let Some(player) = self.local_player.and_then(|id| self.players.get_mut(&id)) {
             let min = Vec2::ZERO;
             let max = vec2(
                 self.map.width as f32 * TILE_SIZE as f32 - screen_width(),
                 self.map.height as f32 * TILE_SIZE as f32 - screen_height(),
             );
 
-            let mut position =
-                -vec2(screen_width() / 2., screen_height() / 2.);
+            let mut position = -vec2(screen_width() / 2., screen_height() / 2.);
             position += player.position + vec2(24., 24.);
             position = position.clamp(min, max);
 
@@ -486,28 +486,16 @@ impl GameState {
                 position.y = (map_height - screen_height()) / 2.;
             }
 
-            let rect = Rect::new(
-                position.x,
-                position.y,
-                screen_width(),
-                screen_height(),
-            );
-            self.camera = Camera2D::from_display_rect(rect);
+            self.clip_rect = Rect::new(position.x, position.y, screen_width(), screen_height());
+            self.camera = Camera2D::from_display_rect(self.clip_rect);
         }
     }
 
-    fn draw(&mut self) {
+    fn draw(&self) {
         clear_background(color::BLACK);
 
         let (map_width, map_height) = self.map.pixel_size();
-        draw_rectangle_lines(
-            -3.,
-            -3.,
-            map_width + 6.,
-            map_height + 6.,
-            6.,
-            color::GRAY,
-        );
+        draw_rectangle_lines(-3., -3., map_width + 6., map_height + 6., 6., color::GRAY);
 
         self.map.draw_layer(MapLayer::Ground, self.time, &self.assets);
         self.map.draw_layer(MapLayer::Mask, self.time, &self.assets);
@@ -523,24 +511,29 @@ impl GameState {
         if self.ui.map_editor_shown {
             self.map.draw_areas(&self.assets);
             if let Some(drag_start) = self.ui.drag_start {
-                let mouse =
-                    self.camera.screen_to_world(mouse_position().into());
+                let mouse = self.camera.screen_to_world(mouse_position().into());
                 let start = drag_start.min(mouse);
                 let end = drag_start.max(mouse);
                 let size = end - start;
 
                 let drag_rect = Rect::new(start.x, start.y, size.x, size.y);
-                draw_area(
-                    drag_rect,
-                    self.ui.map_editor.area_data(),
-                    &self.assets,
-                );
+                draw_area(drag_rect, self.ui.map_editor.area_data(), &self.assets);
             }
         }
+
+        draw_text_shadow(
+            &format!("map: {:?}", self.map.id),
+            vec2(2.0, 2.0),
+            TextParams {
+                font: self.assets.font,
+                color: color::WHITE,
+                ..Default::default()
+            },
+        );
     }
 }
 
-pub async fn game_screen(network: NetworkClient, assets: Assets) {
+pub async fn game_screen(network: NetworkClient, assets: Rc<Assets>) {
     let mut state = GameState::new(network, assets);
 
     loop {
@@ -551,6 +544,17 @@ pub async fn game_screen(network: NetworkClient, assets: Assets) {
         set_default_camera();
 
         egui_macroquad::draw();
+
+        draw_text_ex(
+            &format!("{} fps", get_fps()),
+            2.0,
+            16.0,
+            TextParams {
+                font: state.assets.font,
+                color: color::WHITE,
+                ..Default::default()
+            },
+        );
 
         next_frame().await;
     }

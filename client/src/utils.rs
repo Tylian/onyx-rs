@@ -31,8 +31,10 @@ pub fn draw_text_shadow(text: &str, position: Vec2, params: TextParams) {
         (1.0, 1.0).into(),
     ];
 
-    let outline_param =
-        TextParams { color: Color::new(0.0, 0.0, 0.0, 0.5), ..params };
+    let outline_param = TextParams {
+        color: Color::new(0.0, 0.0, 0.0, 0.5),
+        ..params
+    };
 
     for outline in outlines {
         let position = position + *outline;

@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use macroquad::prelude::*;
 use ndarray::{azip, indices, Array2, Zip};
-use onyx_common::network::{AreaData, MapLayer, TileAnimation};
+use onyx_common::network::{AreaData, MapId, MapLayer, MapSettings, TileAnimation};
 use onyx_common::TILE_SIZE;
 use strum::{EnumCount, IntoEnumIterator};
 
@@ -12,8 +12,7 @@ use crate::utils::ping_pong;
 
 mod interop;
 
-const OFFSETS: &[(i32, i32)] =
-    &[(0, -1), (1, 0), (0, 1), (-1, 0), (1, -1), (1, 1), (-1, 1), (-1, -1)];
+const OFFSETS: &[(i32, i32)] = &[(0, -1), (1, 0), (0, 1), (-1, 0), (1, -1), (1, 1), (-1, 1), (-1, -1)];
 
 fn autotile_a(neighbors: u8) -> IVec2 {
     if neighbors == 0 {
@@ -86,7 +85,6 @@ fn autotile_d(neighbors: u8) -> IVec2 {
 pub struct Tile {
     pub texture: IVec2,
     pub autotile: bool,
-    // just for my sanity, both 0 and 1 animation frames means it's not animated
     pub animation: Option<TileAnimation>,
 }
 
@@ -104,18 +102,16 @@ impl Tile {
             }
         }
 
-        let source = Rect::new(
-            uv.x as f32,
-            uv.y as f32,
-            TILE_SIZE as f32,
-            TILE_SIZE as f32,
-        );
+        let source = Rect::new(uv.x as f32, uv.y as f32, TILE_SIZE as f32, TILE_SIZE as f32);
         draw_texture_ex(
-            assets.tileset,
+            assets.tileset().texture,
             position.x,
             position.y,
             WHITE,
-            DrawTextureParams { source: Some(source), ..Default::default() },
+            DrawTextureParams {
+                source: Some(source),
+                ..Default::default()
+            },
         );
     }
 }
@@ -137,13 +133,7 @@ impl AutoTile {
             ],
         }
     }
-    pub fn draw(
-        &self,
-        position: Vec2,
-        animation: Option<TileAnimation>,
-        time: f64,
-        assets: &Assets,
-    ) {
+    pub fn draw(&self, position: Vec2, animation: Option<TileAnimation>, time: f64, assets: &Assets) {
         const A: (f32, f32) = (0.0, 0.0);
         const B: (f32, f32) = (24.0, 0.0);
         const C: (f32, f32) = (0.0, 24.0);
@@ -156,17 +146,15 @@ impl AutoTile {
                 let t = (time % animation.duration) / animation.duration;
 
                 if animation.bouncy {
-                    uv.x += ping_pong(t, animation.frames) as i32
-                        * (TILE_SIZE * 2);
+                    uv.x += ping_pong(t, animation.frames) as i32 * (TILE_SIZE * 2);
                 } else {
-                    uv.x +=
-                        (t * animation.frames as f64) as i32 * (TILE_SIZE * 2);
+                    uv.x += (t * animation.frames as f64) as i32 * (TILE_SIZE * 2);
                 }
             }
 
             let source = Rect::new(uv.x as f32, uv.y as f32, 24.0, 24.0);
             draw_texture_ex(
-                assets.tileset,
+                assets.tileset().texture,
                 position.x,
                 position.y,
                 WHITE,
@@ -244,30 +232,36 @@ impl Area {
 
 #[derive(Clone)]
 pub struct Map {
+    pub id: MapId,
     pub width: u32,
     pub height: u32,
+    pub settings: MapSettings,
     layers: HashMap<MapLayer, Array2<Option<Tile>>>,
     autotiles: HashMap<MapLayer, Array2<Option<AutoTile>>>,
     pub areas: Vec<Area>,
 }
 
 impl Map {
-    pub fn new(width: u32, height: u32) -> Self {
+    pub fn new(id: MapId, width: u32, height: u32) -> Self {
+        let settings = MapSettings::default();
         let mut layers = HashMap::new();
         let mut autotiles = HashMap::new();
+        let areas = Vec::new();
 
         for layer in MapLayer::iter() {
-            layers.insert(
-                layer,
-                Array2::default((width as usize, height as usize)),
-            );
-            autotiles.insert(
-                layer,
-                Array2::default((width as usize, height as usize)),
-            );
+            layers.insert(layer, Array2::default((width as usize, height as usize)));
+            autotiles.insert(layer, Array2::default((width as usize, height as usize)));
         }
 
-        Self { width, height, layers, autotiles, areas: Vec::new() }
+        Self {
+            id,
+            width,
+            height,
+            settings,
+            layers,
+            autotiles,
+            areas,
+        }
     }
 
     pub fn pixel_size(&self) -> (f32, f32) {
@@ -278,10 +272,7 @@ impl Map {
     }
 
     pub fn valid(&self, pos: IVec2) -> bool {
-        pos.x >= 0
-            && pos.x < self.width as i32
-            && pos.y >= 0
-            && pos.y < self.height as i32
+        pos.x >= 0 && pos.x < self.width as i32 && pos.y >= 0 && pos.y < self.height as i32
     }
 
     pub fn tile(&self, layer: MapLayer, position: IVec2) -> Option<&Tile> {
@@ -292,11 +283,7 @@ impl Map {
             .and_then(|inner| inner.as_ref())
     }
 
-    pub fn tile_mut(
-        &mut self,
-        layer: MapLayer,
-        position: IVec2,
-    ) -> Option<&mut Tile> {
+    pub fn tile_mut(&mut self, layer: MapLayer, position: IVec2) -> Option<&mut Tile> {
         self.layers
             .get_mut(&layer)
             .unwrap()
@@ -305,12 +292,7 @@ impl Map {
     }
 
     // Sets a tile, returning the previous one if it existed
-    pub fn set_tile(
-        &mut self,
-        layer: MapLayer,
-        position: IVec2,
-        tile: Tile,
-    ) -> Option<Tile> {
+    pub fn set_tile(&mut self, layer: MapLayer, position: IVec2, tile: Tile) -> Option<Tile> {
         self.layers
             .get_mut(&layer)
             .unwrap()
@@ -319,11 +301,7 @@ impl Map {
     }
 
     // Clears the tile, returning it if there was one
-    pub fn clear_tile(
-        &mut self,
-        layer: MapLayer,
-        position: IVec2,
-    ) -> Option<Tile> {
+    pub fn clear_tile(&mut self, layer: MapLayer, position: IVec2) -> Option<Tile> {
         self.layers
             .get_mut(&layer)
             .unwrap()
@@ -331,10 +309,7 @@ impl Map {
             .and_then(|tile| tile.take())
     }
 
-    pub fn tiles(
-        &self,
-        layer: MapLayer,
-    ) -> impl Iterator<Item = Option<&Tile>> {
+    pub fn tiles(&self, layer: MapLayer) -> impl Iterator<Item = Option<&Tile>> {
         self.layers[&layer].iter().map(|tile| tile.as_ref())
     }
 
@@ -365,37 +340,32 @@ impl Map {
                 _ => None,
             });
 
-            let neighbor_map =
-                Zip::indexed(&texture_map).map_collect(|index, texture| {
-                    if let &Some(texture) = texture {
-                        let position =
-                            IVec2::new(index.0 as i32, index.1 as i32);
-                        let mut neighbors = 0;
-                        for (i, offset) in OFFSETS.iter().enumerate() {
-                            let neighbor = position + IVec2::from(*offset);
-                            let neighbor = texture_map.get((
-                                neighbor.x as usize,
-                                neighbor.y as usize,
-                            ));
+            let neighbor_map = Zip::indexed(&texture_map).map_collect(|index, texture| {
+                if let &Some(texture) = texture {
+                    let position = IVec2::new(index.0 as i32, index.1 as i32);
+                    let mut neighbors = 0;
+                    for (i, offset) in OFFSETS.iter().enumerate() {
+                        let neighbor = position + IVec2::from(*offset);
+                        let neighbor = texture_map.get((neighbor.x as usize, neighbor.y as usize));
 
-                            if let Some(neighbor) = neighbor {
-                                match (texture, *neighbor) {
-                                    (a, Some(b)) if a == b => {
-                                        neighbors |= 1 << i;
-                                    }
-                                    _ => (),
+                        if let Some(neighbor) = neighbor {
+                            match (texture, *neighbor) {
+                                (a, Some(b)) if a == b => {
+                                    neighbors |= 1 << i;
                                 }
-                            } else {
-                                // Auto-tiles look better when out of map tiles are assumed to be the same
-                                neighbors |= 1 << i;
+                                _ => (),
                             }
+                        } else {
+                            // Auto-tiles look better when out of map tiles are assumed to be the same
+                            neighbors |= 1 << i;
                         }
-
-                        Some((texture, neighbors))
-                    } else {
-                        None
                     }
-                });
+
+                    Some((texture, neighbors))
+                } else {
+                    None
+                }
+            });
 
             let autotile_cache = neighbor_map.map(|info| {
                 info.map(|(texture, neighbors)| {
@@ -414,12 +384,8 @@ impl Map {
         let mut autotiles = HashMap::with_capacity(MapLayer::COUNT);
 
         for layer in MapLayer::iter() {
-            let tiles = Zip::from(indices(dimensions)).map_collect(|index| {
-                self.layers
-                    .get(&layer)
-                    .and_then(|f| f.get(index).cloned())
-                    .flatten()
-            });
+            let tiles = Zip::from(indices(dimensions))
+                .map_collect(|index| self.layers.get(&layer).and_then(|f| f.get(index).cloned()).flatten());
             layers.insert(layer, tiles);
             autotiles.insert(layer, Array2::default(dimensions));
         }
@@ -430,15 +396,22 @@ impl Map {
             width as f32 * TILE_SIZE as f32,
             height as f32 * TILE_SIZE as f32,
         );
-        let attributes = self
+        let areas = self
             .areas
             .iter()
             .cloned()
             .filter(|attrib| map_rect.overlaps(&attrib.position))
             .collect();
 
-        let mut map =
-            Map { width, height, layers, autotiles, areas: attributes };
+        let mut map = Map {
+            id: self.id,
+            width,
+            height,
+            settings: self.settings.clone(),
+            layers,
+            autotiles,
+            areas,
+        };
         map.update_autotile_cache();
         map
     }
