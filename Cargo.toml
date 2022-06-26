@@ -1,8 +1,12 @@
 [workspace]
-members = ["client", "server", "common"]
+members = [
+    "client",
+    "server",
+    "common"
+]
 
 [profile.dev.package.'*']
 opt-level = 3
 
 [patch.crates-io]
-egui-miniquad = { git = "https://github.com/nobbele/egui-miniquad" }
+egui-miniquad = { git = "https://github.com/not-fl3/egui-miniquad" }

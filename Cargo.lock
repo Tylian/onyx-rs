@@ -438,7 +438,7 @@ dependencies = [
 [[package]]
 name = "egui-miniquad"
 version = "0.11.0"
-source = "git+https://github.com/nobbele/egui-miniquad#c43c7c08c96b9239a19f86f2e32e03eb9d670c11"
+source = "git+https://github.com/not-fl3/egui-miniquad#961343632007c64687b2029e497e13dfd434dfab"
 dependencies = [
  "bytemuck",
  "copypasta",
@@ -1206,6 +1206,7 @@ dependencies = [
  "simple_logger",
  "strum",
  "thiserror",
+ "toml",
 ]
 
 [[package]]

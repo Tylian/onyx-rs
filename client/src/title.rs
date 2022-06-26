@@ -82,10 +82,10 @@ fn draw_ui(ctx: &egui::Context, state: &mut UiState, assets: &Assets) {
 }
 
 pub async fn title_screen(assets: Rc<Assets>) -> NetworkClient {
-    let path = PathBuf::from("./settings.bin");
+    let path = PathBuf::from("./settings.toml");
     let settings = fs::read(path)
         .ok()
-        .and_then(|bytes| bincode::deserialize(&bytes).ok())
+        .and_then(|bytes| toml::from_slice(&bytes).ok())
         .unwrap_or_default();
 
     let mut state = UiState {
@@ -103,9 +103,9 @@ pub async fn title_screen(assets: Rc<Assets>) -> NetworkClient {
             .map_or(false, |n| n.status() == NetworkStatus::Connected);
 
         if is_online {
-            let written = bincode::serialize(&state.settings)
+            let written = toml::to_string_pretty(&state.settings)
                 .ok()
-                .and_then(|bytes| fs::write("./settings.bin", bytes).ok())
+                .and_then(|toml| fs::write("./settings.toml", toml).ok())
                 .is_some();
 
             if !written {
