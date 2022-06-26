@@ -7,7 +7,7 @@
         {
             "type": "lldb",
             "request": "launch",
-            "name": "Debug executable 'onyx-client'",
+            "name": "Debug client",
             "cargo": {
                 "args": [
                     "build",
@@ -25,7 +25,7 @@
         {
             "type": "lldb",
             "request": "launch",
-            "name": "Debug executable 'onyx-server'",
+            "name": "Debug server",
             "cargo": {
                 "args": [
                     "build",

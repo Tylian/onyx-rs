@@ -2,10 +2,10 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
 
 use bimap::BiHashMap;
+use common::network::*;
 use log::info;
 use message_io::network::{Endpoint, ToRemoteAddr, Transport};
 use message_io::node::{self, StoredNetEvent};
-use onyx_common::network::*;
 
 // Represents a signal being sent from the game engine to the network layer
 pub enum GameSignal {

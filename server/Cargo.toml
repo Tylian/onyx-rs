@@ -13,6 +13,7 @@ euclid = { version = "0.22.7", features = ["mint"] }
 log = "0.4.17"
 message-io = { version = "0.14.5", default_features = false, features = ["tcp"] }
 mint = { version = "0.5.9", features = ["serde"] }
-onyx-common = { path = "../common" }
+common = { package = "onyx-common", path = "../common" }
 serde = "1.0.137"
 simple_logger = "2.1.0"
+toml = "0.5.9"

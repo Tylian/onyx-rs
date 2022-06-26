@@ -1,19 +1,22 @@
 use std::{
+    cell::RefCell,
     collections::{HashMap, VecDeque},
     ffi::OsStr,
     fs,
-    time::{Duration, Instant}, cell::RefCell,
+    path::PathBuf,
+    time::{Duration, Instant},
 };
 
 use anyhow::{anyhow, Result};
-use euclid::default::{Point2D, Rect, Size2D, Vector2D};
-use onyx_common::{
+use common::{
     network::{
         AreaData, ChatMessage, ClientId, ClientMessage, Direction, Map as NetworkMap, MapId,
         PlayerData as NetworkPlayerData, ServerMessage,
     },
     SPRITE_SIZE, TILE_SIZE,
 };
+use euclid::default::{Point2D, Rect, Size2D, Vector2D};
+use serde::{Deserialize, Serialize};
 
 use crate::networking::{Message, NetworkSignal, Networking};
 
@@ -48,7 +51,22 @@ struct WarpParams {
     velocity: Option<Option<Vector2D<f32>>>,
 }
 
+#[derive(Serialize, Deserialize)]
+struct Config {
+    listen: String,
+}
+
+impl Config {
+    fn path() -> PathBuf {
+        let mut path = common::server_runtime!();
+        path.push("config.toml");
+
+        path
+    }
+}
+
 struct GameServer {
+    config: Config,
     network: Networking,
     players: HashMap<ClientId, PlayerData>,
     maps: HashMap<MapId, NetworkMap>,
@@ -62,13 +80,16 @@ struct GameServer {
 
 impl GameServer {
     pub fn new() -> Result<Self> {
+        let config: Config = toml::from_str(&std::fs::read_to_string(Config::path())?)?;
+
         let mut network = Networking::new();
-        network.listen("0.0.0.0:3042");
+        network.listen(&config.listen);
 
         let maps = Self::load_maps()?;
 
         Ok(Self {
             network,
+            config,
             players: HashMap::new(),
             time: Instant::now(),
             dt: Duration::ZERO,
@@ -79,8 +100,11 @@ impl GameServer {
     }
 
     pub fn load_maps() -> Result<HashMap<MapId, NetworkMap>> {
+        let mut path = common::server_runtime!();
+        path.push("maps");
+
         let mut maps = HashMap::new();
-        for entry in fs::read_dir("./data/maps")? {
+        for entry in fs::read_dir(path)? {
             let entry = entry?;
             let path = entry.path();
             if path.is_file() {
@@ -330,7 +354,10 @@ impl GameServer {
                 )
                 .to_box2d();
 
-                let (map_width, map_height) = (map.width as f32 * TILE_SIZE as f32, map.height as f32 * TILE_SIZE as f32);
+                let (map_width, map_height) = (
+                    map.width as f32 * TILE_SIZE as f32,
+                    map.height as f32 * TILE_SIZE as f32,
+                );
 
                 // map warps, lots of copy paste code lol
                 if let Some(map_id) = map.settings.warps.north {
@@ -342,12 +369,12 @@ impl GameServer {
                             WarpParams {
                                 position: Some(Point2D::new(new_position.x, height - SPRITE_SIZE as f32)),
                                 ..Default::default()
-                            }
+                            },
                         ));
                         valid = false;
                     }
-                } 
-                
+                }
+
                 if let Some(map_id) = map.settings.warps.south {
                     if sprite.max.y >= map_height {
                         to_warp.push((
@@ -356,12 +383,12 @@ impl GameServer {
                             WarpParams {
                                 position: Some(Point2D::new(new_position.x, -SPRITE_SIZE as f32 / 2.0)),
                                 ..Default::default()
-                            }
+                            },
                         ));
                         valid = false;
                     }
-                } 
-                
+                }
+
                 if let Some(map_id) = map.settings.warps.west {
                     if sprite.min.x <= 0.0 {
                         let width = self.maps.get(&map_id).unwrap().width as f32 * TILE_SIZE as f32;
@@ -371,12 +398,12 @@ impl GameServer {
                             WarpParams {
                                 position: Some(Point2D::new(width - SPRITE_SIZE as f32, new_position.y)),
                                 ..Default::default()
-                            }
+                            },
                         ));
                         valid = false;
                     }
                 }
-                
+
                 if let Some(map_id) = map.settings.warps.east {
                     if sprite.max.x >= map_width {
                         to_warp.push((
@@ -385,24 +412,28 @@ impl GameServer {
                             WarpParams {
                                 position: Some(Point2D::new(0.0, new_position.y)),
                                 ..Default::default()
-                            }
+                            },
                         ));
                         valid = false;
                     }
-                }  
+                }
 
                 // todo: method on map?
-                let map_box = Rect::new(Point2D::zero(), Size2D::new(
-                    map.width as f32 * TILE_SIZE as f32,
-                    map.height as f32 * TILE_SIZE as f32,
-                )).to_box2d();
+                let map_box = Rect::new(
+                    Point2D::zero(),
+                    Size2D::new(
+                        map.width as f32 * TILE_SIZE as f32,
+                        map.height as f32 * TILE_SIZE as f32,
+                    ),
+                )
+                .to_box2d();
 
                 valid &= map_box.contains_box(&sprite);
                 valid &= !map.areas.iter().any(|attrib| {
                     let box2d = Rect::new(attrib.position.into(), attrib.size.into()).to_box2d();
                     attrib.data == AreaData::Blocked && box2d.intersects(&sprite)
                 });
-    
+
                 if valid {
                     player.position = new_position;
                 }
@@ -428,7 +459,7 @@ impl GameServer {
                                     direction: Some(*direction),
                                     velocity: Some(None),
                                     ..Default::default()
-                                }
+                                },
                             ));
                         }
                     }
@@ -477,11 +508,10 @@ impl GameServer {
                 .map(|(&cid, data)| ServerMessage::PlayerJoined(cid, data.clone().into()))
                 .collect::<Vec<_>>();
 
-            
             for packet in packets {
                 self.queue(Message::only(client_id, packet));
             }
-            
+
             self.queue(Message::list(
                 self.players
                     .iter()
@@ -493,9 +523,15 @@ impl GameServer {
         }
 
         if let Some(player) = self.players.get_mut(&client_id) {
-            if let Some(v) = params.position { player.position = v; }
-            if let Some(v) = params.direction { player.direction = v; }
-            if let Some(v) = params.velocity { player.velocity = v; }
+            if let Some(v) = params.position {
+                player.position = v;
+            }
+            if let Some(v) = params.direction {
+                player.direction = v;
+            }
+            if let Some(v) = params.velocity {
+                player.velocity = v;
+            }
 
             let packet = ServerMessage::PlayerMove {
                 client_id,
@@ -512,7 +548,7 @@ impl GameServer {
                     .collect::<Vec<_>>(),
                 packet,
             ));
-        }    
+        }
     }
 
     // Specifically created to avoid scope issues

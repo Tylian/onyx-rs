@@ -1,12 +1,12 @@
-use macroquad::prelude::*;
-use onyx_common::{
+use common::{
     network::{ClientId, Direction, PlayerData},
     TILE_SIZE,
 };
+use macroquad::prelude::*;
 
 use crate::{
     assets::Assets,
-    utils::{draw_text_shadow, ping_pong},
+    utils::{ping_pong, draw_text_outline},
 };
 
 use super::SPRITE_SIZE;
@@ -84,7 +84,7 @@ impl Player {
         let text_offset = ((SPRITE_SIZE as f32 - measurements.width) / 2.0, -3.0).into();
 
         let pos = position + text_offset;
-        draw_text_shadow(
+        draw_text_outline(
             &self.name,
             pos,
             TextParams {

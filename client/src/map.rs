@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 
+use common::network::{AreaData, MapId, MapLayer, MapSettings, TileAnimation};
+use common::TILE_SIZE;
 use macroquad::prelude::*;
 use ndarray::{azip, indices, Array2, Zip};
-use onyx_common::network::{AreaData, MapId, MapLayer, MapSettings, TileAnimation};
-use onyx_common::TILE_SIZE;
 use strum::{EnumCount, IntoEnumIterator};
 
 use crate::assets::Assets;
@@ -181,7 +181,9 @@ impl AttributeDataEx for AreaData {
     fn text(&self) -> String {
         match self {
             AreaData::Blocked => String::from("Blocked"),
-            AreaData::Warp(map_id, position, _direction) => format!("Warp to\n{} ({},{})", map_id.0, position.x, position.y),
+            AreaData::Warp(map_id, position, _direction) => {
+                format!("Warp to\n{} ({},{})", map_id.0, position.x, position.y)
+            }
         }
     }
     fn color(&self) -> Color {

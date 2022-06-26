@@ -254,7 +254,7 @@ impl TileAnimation {
 #[derive(Clone, Serialize, Deserialize, PartialEq, Debug)]
 pub enum AreaData {
     Blocked,
-    Warp(MapId, Point2<f32>, Direction)
+    Warp(MapId, Point2<f32>, Direction),
 }
 
 impl AreaData {

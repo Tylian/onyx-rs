@@ -1,12 +1,8 @@
-use std::{
-    cell::{Ref, RefCell},
-    collections::HashMap,
-    ffi::OsStr, io::BufReader, fs::File,
-};
+use std::{cell::{Ref, RefCell}, collections::HashMap, ffi::OsStr, fs::File, io::BufReader};
 
 use anyhow::{anyhow, Result};
-use macroquad::{prelude::*};
-use rodio::{Decoder, OutputStream, Sink, OutputStreamHandle, Source};
+use macroquad::prelude::*;
+use rodio::{Decoder, OutputStream, OutputStreamHandle, Sink, Source};
 
 #[derive(Clone)]
 pub struct DualTexture {
@@ -45,7 +41,7 @@ pub struct Assets {
     stream_handle: OutputStreamHandle,
 
     music_list: Vec<String>,
-    current_sink: RefCell<Option<(String, Sink)>>
+    current_sink: RefCell<Option<(String, Sink)>>,
 }
 
 impl Assets {
@@ -117,19 +113,18 @@ impl Assets {
     pub fn get_music(&self) -> Vec<String> {
         self.music_list.clone()
     }
-    
+
     async fn load_music_list() -> Result<Vec<String>> {
         let mut music = Vec::new();
         for entry in std::fs::read_dir("./assets/music")? {
             let entry = entry?;
             let path = entry.path();
             if path.is_file() {
-                debug!("Loading music {}", path.display());
                 let name = path.file_name().unwrap().to_string_lossy();
                 music.push(name.to_string())
             }
         }
-        
+
         Ok(music)
     }
 
@@ -137,7 +132,7 @@ impl Assets {
         match self.current_sink.replace(None) {
             Some((current_file, sink)) if current_file == file_name => {
                 self.current_sink.replace(Some((current_file, sink)));
-            },
+            }
             _ => {
                 let sink = Sink::try_new(&self.stream_handle).unwrap();
                 let file = BufReader::new(File::open(format!("./assets/music/{file_name}")).unwrap());
@@ -147,7 +142,7 @@ impl Assets {
                 sink.append(source);
 
                 self.current_sink.replace(Some((file_name.to_string(), sink)));
-            },
+            }
         }
     }
 

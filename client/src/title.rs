@@ -1,7 +1,7 @@
-use std::{fs, path::PathBuf, rc::Rc};
+use std::{path::PathBuf, rc::Rc};
 
+use common::network::ClientMessage;
 use macroquad::{color, prelude::*};
-use onyx_common::network::ClientMessage;
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -15,6 +15,14 @@ struct Settings {
     address: String,
     name: String,
     sprite: u32,
+}
+
+impl Settings {
+    fn path() -> PathBuf {
+        let mut path = common::client_runtime!();
+        path.push("settings.toml");
+        path
+    }
 }
 
 impl Default for Settings {
@@ -82,10 +90,9 @@ fn draw_ui(ctx: &egui::Context, state: &mut UiState, assets: &Assets) {
 }
 
 pub async fn title_screen(assets: Rc<Assets>) -> NetworkClient {
-    let path = PathBuf::from("./settings.toml");
-    let settings = fs::read(path)
+    let settings = std::fs::read_to_string(Settings::path())
         .ok()
-        .and_then(|bytes| toml::from_slice(&bytes).ok())
+        .and_then(|settings| toml::from_str(&settings).ok())
         .unwrap_or_default();
 
     let mut state = UiState {
@@ -105,7 +112,7 @@ pub async fn title_screen(assets: Rc<Assets>) -> NetworkClient {
         if is_online {
             let written = toml::to_string_pretty(&state.settings)
                 .ok()
-                .and_then(|toml| fs::write("./settings.toml", toml).ok())
+                .and_then(|toml| std::fs::write("./settings.toml", toml).ok())
                 .is_some();
 
             if !written {

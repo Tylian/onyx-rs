@@ -5,9 +5,9 @@ use std::sync::{
 };
 use std::thread;
 
+use common::network::{ClientMessage, ServerMessage};
 use message_io::network::{ToRemoteAddr, Transport};
 use message_io::node::{self, StoredNetEvent};
-use onyx_common::network::{ClientMessage, ServerMessage};
 
 #[derive(Copy, Clone, PartialEq)]
 pub enum NetworkStatus {

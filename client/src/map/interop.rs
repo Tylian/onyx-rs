@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 
+use common::network::{Area as NetworkArea, Map as NetworkMap, MapLayer, Tile as NetworkTile};
 use macroquad::prelude::*;
 use mint::{Point2, Vector2};
 use ndarray::Array2;
-use onyx_common::network::{Area as NetworkArea, Map as NetworkMap, MapLayer, Tile as NetworkTile};
 use strum::EnumCount;
 use thiserror::Error;
 
