@@ -256,7 +256,7 @@ impl MapEditor {
                         self.area_data = AreaData::Warp(
                             MapId(0),
                             mint::Point2 { x: 0.0, y: 0.0 },
-                            common::network::Direction::South,
+                            None,
                         );
                     }
                 });
@@ -296,13 +296,18 @@ impl MapEditor {
 
                                 ui.label("Direction:");
                                 egui::ComboBox::from_id_source("warp direction")
-                                    .selected_text(direction.to_string())
+                                    .selected_text(if let Some(direction) = direction {
+                                        direction.to_string()
+                                    } else {
+                                        String::from("Don't change, keep movement")
+                                    })
                                     .show_ui(ui, |ui| {
                                         use common::network::Direction;
-                                        ui.selectable_value(direction, Direction::North, "North");
-                                        ui.selectable_value(direction, Direction::East, "East");
-                                        ui.selectable_value(direction, Direction::South, "South");
-                                        ui.selectable_value(direction, Direction::West, "West");
+                                        ui.selectable_value(direction, None, "Don't change, keep movement");
+                                        ui.selectable_value(direction, Some(Direction::North), "North");
+                                        ui.selectable_value(direction, Some(Direction::East), "East");
+                                        ui.selectable_value(direction, Some(Direction::South), "South");
+                                        ui.selectable_value(direction, Some(Direction::West), "West");
                                     });
                             }
                         });

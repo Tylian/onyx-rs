@@ -43,7 +43,7 @@ impl From<PlayerData> for NetworkPlayerData {
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 struct WarpParams {
     initial: bool,
     position: Option<Point2D<f32>>,
@@ -51,7 +51,7 @@ struct WarpParams {
     velocity: Option<Option<Vector2D<f32>>>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 struct Config {
     listen: String,
 }
@@ -249,6 +249,7 @@ impl GameServer {
                 let player = self.players.get_mut(&client_id).unwrap();
                 player.position = position.into();
                 player.velocity = velocity.map(Into::into);
+                player.direction = direction;
 
                 let packet = ServerMessage::PlayerMove {
                     client_id,
@@ -447,7 +448,6 @@ impl GameServer {
 
             for area in map.areas.iter() {
                 match &area.data {
-                    // TODO make direction an option and don't reset velocity if it's None
                     AreaData::Warp(map_id, position, direction) => {
                         let box2d = Rect::new(area.position.into(), area.size.into()).to_box2d();
                         if box2d.intersects(&sprite) {
@@ -456,8 +456,8 @@ impl GameServer {
                                 *map_id,
                                 WarpParams {
                                     position: Some((*position).into()),
-                                    direction: Some(*direction),
-                                    velocity: Some(None),
+                                    direction: *direction,
+                                    velocity: direction.map(|_| None),
                                     ..Default::default()
                                 },
                             ));
@@ -479,12 +479,13 @@ impl GameServer {
 
     /// Warps the player to a specific map, sending all the correct packets
     fn warp_player(&mut self, client_id: ClientId, map_id: MapId, params: WarpParams) {
+        println!("{:?}, {:?}, {:?}", client_id, map_id, params);
         if !self.players.contains_key(&client_id) {
             return;
         }
 
         // check if we're actually changing maps, or if we're just moving to a new position.
-        if self.players.get(&client_id).unwrap().map != map_id || params.initial {
+        if params.initial  || self.players.get(&client_id).unwrap().map != map_id {
             if !params.initial {
                 let list = self
                     .players
@@ -539,6 +540,8 @@ impl GameServer {
                 direction: player.direction,
                 velocity: player.velocity.map(Into::into),
             };
+
+            println!("{packet:?}");
 
             self.queue(Message::list(
                 self.players
