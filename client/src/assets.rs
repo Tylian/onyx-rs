@@ -1,4 +1,4 @@
-use std::{cell::{Ref, RefCell}, collections::HashMap, ffi::OsStr, fs::File, io::BufReader};
+use std::{cell::{Ref, RefCell}, collections::HashMap, ffi::OsStr, fs::File, io::BufReader, path::{PathBuf, Path}};
 
 use anyhow::{anyhow, Result};
 use macroquad::prelude::*;
@@ -45,10 +45,23 @@ pub struct Assets {
 }
 
 impl Assets {
+    /// Convenience function that returns an asset path in the runtime folder
+    fn asset_path(source: impl AsRef<Path>) -> PathBuf {
+        let mut path = common::client_runtime!();
+        path.push("assets");
+        path.push(source); 
+        path
+    }
+
+    /// Convenience function that returns an asset path as a string
+    fn asset_path_str(source: impl AsRef<Path>) -> String {
+        Self::asset_path(source).to_string_lossy().to_string()
+    }
+
     pub async fn load() -> Result<Self> {
-        let sprites = load_image("assets/sprites.png").await?;
+        let sprites = load_image(&Self::asset_path_str("sprites.png")).await?;
         let sprites = DualTexture::from_image("sprites.png", &sprites);
-        let font = load_ttf_font("assets/LiberationMono-Regular.ttf").await?;
+        let font = load_ttf_font(&Self::asset_path_str("LiberationMono-Regular.ttf")).await?;
 
         let tilesets = Assets::load_tilesets().await?;
         let music_list = Assets::load_music_list().await?;
@@ -71,7 +84,7 @@ impl Assets {
 
     async fn load_tilesets() -> Result<HashMap<String, Image>> {
         let mut tilesets = HashMap::new();
-        for entry in std::fs::read_dir("./assets/tilesets")? {
+        for entry in std::fs::read_dir(Self::asset_path("tilesets"))? {
             let entry = entry?;
             let path = entry.path();
             if path.is_file() && path.extension().and_then(OsStr::to_str) == Some("png") {
@@ -84,8 +97,8 @@ impl Assets {
 
         if !tilesets.contains_key("default.png") {
             Err(anyhow!(
-                "the file \"./assets/tilesets/default.png\" does not exist, but it is required to exist"
-            ))
+                "the file \"{}\" does not exist, but it is required to exist"
+            , Self::asset_path("tilesets/default.png").display()))
         } else {
             Ok(tilesets)
         }
@@ -116,7 +129,7 @@ impl Assets {
 
     async fn load_music_list() -> Result<Vec<String>> {
         let mut music = Vec::new();
-        for entry in std::fs::read_dir("./assets/music")? {
+        for entry in std::fs::read_dir(Self::asset_path("music"))? {
             let entry = entry?;
             let path = entry.path();
             if path.is_file() {
