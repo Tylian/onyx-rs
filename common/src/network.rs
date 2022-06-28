@@ -17,7 +17,15 @@ impl From<u64> for ClientId {
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Debug)]
 pub enum ClientMessage {
-    Hello(String, u32),
+    CreateAccount {
+        username: String,
+        password: String,
+        character_name: String,
+    },
+    Login {
+        username: String,
+        password: String,
+    },
     Move {
         position: Point2<f32>,
         direction: Direction,
@@ -32,8 +40,9 @@ pub enum ClientMessage {
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Debug)]
 pub enum ServerMessage {
-    Hello(ClientId),
-    PlayerJoined(ClientId, PlayerData),
+    JoinGame(ClientId),
+    FailedJoin(FailJoinReason),
+    PlayerJoined(ClientId, Player),
     PlayerLeft(ClientId),
     PlayerMove {
         client_id: ClientId,
@@ -51,6 +60,23 @@ pub enum ServerMessage {
         height: u32,
         settings: MapSettings,
     },
+}
+
+#[derive(Copy, Clone, Serialize, Deserialize, PartialEq, Debug)]
+pub enum FailJoinReason {
+    UsernameTaken,
+    CharacterNameTaken,
+    LoginIncorrect,
+}
+
+impl Display for FailJoinReason {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            FailJoinReason::UsernameTaken => write!(f, "username is taken"),
+            FailJoinReason::CharacterNameTaken => write!(f, "character name is taken"),
+            FailJoinReason::LoginIncorrect => write!(f, "username/password is incorrect"),
+        }
+    }
 }
 
 #[derive(Copy, Clone, Serialize, Deserialize, PartialEq, Debug)]
@@ -112,7 +138,7 @@ impl From<Direction> for Vector2<i32> {
 }
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Debug)]
-pub struct PlayerData {
+pub struct Player {
     pub name: String,
     pub position: Point2<f32>,
     pub sprite: u32,
@@ -174,14 +200,14 @@ pub struct Map {
     pub height: u32,
     pub settings: MapSettings,
     pub layers: HashMap<MapLayer, Array2<Option<Tile>>>,
-    pub areas: Vec<Area>,
+    pub zones: Vec<Zone>,
 }
 
 impl Map {
     pub fn new(id: MapId, width: u32, height: u32) -> Self {
         let settings = MapSettings::default();
         let mut layers = HashMap::new();
-        let areas = Vec::new();
+        let zones = Vec::new();
 
         for layer in MapLayer::iter() {
             layers.insert(layer, Array2::default((width as usize, height as usize)));
@@ -193,7 +219,7 @@ impl Map {
             height,
             settings,
             layers,
-            areas,
+            zones: zones,
         }
     }
 }
@@ -252,23 +278,23 @@ impl TileAnimation {
 }
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Debug)]
-pub enum AreaData {
+pub enum ZoneData {
     Blocked,
     Warp(MapId, Point2<f32>, Option<Direction>),
 }
 
-impl AreaData {
+impl ZoneData {
     pub fn name(&self) -> &str {
         match self {
-            AreaData::Blocked => "Blocked",
-            AreaData::Warp(_, _, _) => "Warp",
+            ZoneData::Blocked => "Blocked",
+            ZoneData::Warp(_, _, _) => "Warp",
         }
     }
 }
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Debug)]
-pub struct Area {
+pub struct Zone {
     pub position: Point2<f32>,
     pub size: Vector2<f32>,
-    pub data: AreaData,
+    pub data: ZoneData,
 }

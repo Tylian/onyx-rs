@@ -1,6 +1,8 @@
 use std::collections::HashMap;
+use std::path::PathBuf;
 
-use common::network::{AreaData, MapId, MapLayer, MapSettings, TileAnimation};
+use anyhow::Result;
+use common::network::{ZoneData, Map as NetworkMap, MapId, MapLayer, MapSettings, TileAnimation};
 use common::TILE_SIZE;
 use macroquad::prelude::*;
 use ndarray::{azip, indices, Array2, Zip};
@@ -177,24 +179,24 @@ trait AttributeDataEx {
     fn color(&self) -> Color;
 }
 
-impl AttributeDataEx for AreaData {
+impl AttributeDataEx for ZoneData {
     fn text(&self) -> String {
         match self {
-            AreaData::Blocked => String::from("Blocked"),
-            AreaData::Warp(map_id, position, _direction) => {
+            ZoneData::Blocked => String::from("Blocked"),
+            ZoneData::Warp(map_id, position, _direction) => {
                 format!("Warp to\n{} ({},{})", map_id.0, position.x, position.y)
             }
         }
     }
     fn color(&self) -> Color {
         match self {
-            AreaData::Blocked => RED,
-            AreaData::Warp(_, _, _) => GREEN,
+            ZoneData::Blocked => RED,
+            ZoneData::Warp(_, _, _) => GREEN,
         }
     }
 }
 
-pub fn draw_area(position: Rect, data: &AreaData, assets: &Assets) {
+pub fn draw_zone(position: Rect, data: &ZoneData, assets: &Assets) {
     let color = data.color();
     let text = data.text();
 
@@ -221,14 +223,14 @@ pub fn draw_area(position: Rect, data: &AreaData, assets: &Assets) {
 }
 
 #[derive(Clone, Debug)]
-pub struct Area {
+pub struct Zone {
     pub position: Rect,
-    pub data: AreaData,
+    pub data: ZoneData,
 }
 
-impl Area {
+impl Zone {
     pub fn draw(&self, assets: &Assets) {
-        draw_area(self.position, &self.data, assets);
+        draw_zone(self.position, &self.data, assets);
     }
 }
 
@@ -240,15 +242,30 @@ pub struct Map {
     pub settings: MapSettings,
     layers: HashMap<MapLayer, Array2<Option<Tile>>>,
     autotiles: HashMap<MapLayer, Array2<Option<AutoTile>>>,
-    pub areas: Vec<Area>,
+    pub zones: Vec<Zone>,
 }
 
 impl Map {
+    pub fn cache_path(id: MapId) -> PathBuf {
+        let mut path = common::client_runtime!();
+        path.push("maps");
+        path.push(format!("{}.bin", id.0));
+        path
+    }
+
+    pub fn from_cache(id: MapId) -> Result<Self> {
+        let path = Self::cache_path(id);
+        let bytes = std::fs::read(path)?;
+        let map: NetworkMap = bincode::deserialize(&bytes)?;
+
+        Ok(map.try_into()?)
+    }
+
     pub fn new(id: MapId, width: u32, height: u32) -> Self {
         let settings = MapSettings::default();
         let mut layers = HashMap::new();
         let mut autotiles = HashMap::new();
-        let areas = Vec::new();
+        let zones = Vec::new();
 
         for layer in MapLayer::iter() {
             layers.insert(layer, Array2::default((width as usize, height as usize)));
@@ -262,7 +279,7 @@ impl Map {
             settings,
             layers,
             autotiles,
-            areas,
+            zones,
         }
     }
 
@@ -329,8 +346,8 @@ impl Map {
         });
     }
 
-    pub fn draw_areas(&self, assets: &Assets) {
-        for attrib in &self.areas {
+    pub fn draw_zones(&self, assets: &Assets) {
+        for attrib in &self.zones {
             attrib.draw(assets);
         }
     }
@@ -398,8 +415,8 @@ impl Map {
             width as f32 * TILE_SIZE as f32,
             height as f32 * TILE_SIZE as f32,
         );
-        let areas = self
-            .areas
+        let zones = self
+            .zones
             .iter()
             .cloned()
             .filter(|attrib| map_rect.overlaps(&attrib.position))
@@ -412,7 +429,7 @@ impl Map {
             settings: self.settings.clone(),
             layers,
             autotiles,
-            areas,
+            zones,
         };
         map.update_autotile_cache();
         map

@@ -1,12 +1,12 @@
 use common::{
-    network::{ClientId, Direction, PlayerData},
+    network::{ClientId, Direction, Player as NetworkPlayer},
     TILE_SIZE,
 };
 use macroquad::prelude::*;
 
 use crate::{
     assets::Assets,
-    utils::{ping_pong, draw_text_outline},
+    utils::{draw_text_outline, ping_pong},
 };
 
 use super::SPRITE_SIZE;
@@ -59,7 +59,7 @@ pub struct Player {
 }
 
 impl Player {
-    pub fn from_network(id: ClientId, data: PlayerData) -> Self {
+    pub fn from_network(id: ClientId, data: NetworkPlayer) -> Self {
         Self {
             id,
             name: data.name,

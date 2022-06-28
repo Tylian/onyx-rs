@@ -1,20 +1,20 @@
 use std::{path::PathBuf, rc::Rc};
 
-use common::network::ClientMessage;
+use anyhow::Result;
+use common::network::{ClientId, ClientMessage, ServerMessage};
 use macroquad::{color, prelude::*};
+use message_io::node::StoredNetEvent;
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    assets::Assets,
-    networking::{NetworkClient, NetworkStatus},
-    ui::sprite_preview,
-};
+use crate::{assets::Assets, network::Network};
 
 #[derive(Serialize, Deserialize)]
 struct Settings {
     address: String,
-    name: String,
-    sprite: u32,
+    #[serde(default)]
+    username: String,
+    #[serde(default)]
+    password: Option<String>,
 }
 
 impl Settings {
@@ -23,21 +23,116 @@ impl Settings {
         path.push("settings.toml");
         path
     }
+
+    fn load() -> Result<Self> {
+        let contents = std::fs::read_to_string(Settings::path())?;
+        Ok(toml::from_str(&contents)?)
+    }
+
+    fn save(&self) -> Result<()> {
+        let contents = toml::to_string_pretty(&self)?;
+        std::fs::write(Settings::path(), &contents)?;
+
+        Ok(())
+    }
 }
 
 impl Default for Settings {
     fn default() -> Self {
         Self {
-            address: "66.228.47.52:3042".to_owned(),
-            name: "Player".to_owned(),
-            sprite: 0,
+            address: "66.228.47.52:20371".to_owned(),
+            username: String::new(),
+            password: None,
         }
     }
 }
 
 struct UiState {
-    settings: Settings,
-    network: Option<NetworkClient>,
+    username: String,
+    password: String,
+    save_password: bool,
+    character_name: String,
+    network: Network,
+    loading: bool,
+    error: Option<String>,
+    tab: UiTab,
+}
+
+#[derive(Copy, Clone, PartialEq)]
+enum UiTab {
+    Login,
+    Create,
+}
+
+fn draw_login(ui: &mut egui::Ui, state: &mut UiState, _assets: &Assets) {
+    use egui::*;
+
+    Grid::new("login").num_columns(2).show(ui, |ui| {
+        ui.label("Username:");
+        ui.text_edit_singleline(&mut state.username);
+        ui.end_row();
+
+        ui.label("Password:");
+        ui.add(TextEdit::singleline(&mut state.password).password(true));
+        ui.end_row();
+
+        ui.add_space(0.0);
+        ui.checkbox(&mut state.save_password, "Save password?");
+        ui.end_row();
+    });
+    ui.separator();
+    ui.horizontal(|ui| {
+        if ui.button("Login").clicked() {
+            state.error = None;
+            state.loading = true;
+            state.network.send(ClientMessage::Login {
+                username: state.username.clone(),
+                password: state.password.clone(),
+            });
+        }
+        if state.loading {
+            ui.spinner();
+        }
+        if let Some(error) = state.error.as_ref() {
+            ui.colored_label(Color32::RED, error);
+        }
+    });
+}
+
+fn draw_create(ui: &mut egui::Ui, state: &mut UiState, _assets: &Assets) {
+    use egui::*;
+
+    Grid::new("create").num_columns(2).show(ui, |ui| {
+        ui.label("Username:");
+        ui.text_edit_singleline(&mut state.username);
+        ui.end_row();
+
+        ui.label("Password:");
+        ui.add(TextEdit::singleline(&mut state.password).password(true));
+        ui.end_row();
+
+        ui.label("Character name:");
+        ui.text_edit_singleline(&mut state.character_name);
+        ui.end_row();
+    });
+    ui.separator();
+    ui.horizontal(|ui| {
+        if ui.button("Create character").clicked() {
+            state.error = None;
+            state.loading = true;
+            state.network.send(ClientMessage::CreateAccount {
+                username: state.username.clone(),
+                password: state.password.clone(),
+                character_name: state.character_name.clone(),
+            });
+        }
+        if state.loading {
+            ui.spinner();
+        }
+        if let Some(error) = state.error.as_ref() {
+            ui.colored_label(Color32::RED, error);
+        }
+    });
 }
 
 fn draw_ui(ctx: &egui::Context, state: &mut UiState, assets: &Assets) {
@@ -47,80 +142,75 @@ fn draw_ui(ctx: &egui::Context, state: &mut UiState, assets: &Assets) {
         .anchor(Align2::CENTER_CENTER, [0.0, 0.0])
         .resizable(false);
 
-    let is_connecting = state.network.is_some();
-    let time = get_time();
-
     login_window.show(ctx, |ui| {
-        ui.add_enabled_ui(!is_connecting, |ui| {
-            Grid::new("login").num_columns(2).show(ui, |ui| {
-                ui.label("Name");
-                ui.text_edit_singleline(&mut state.settings.name);
-                ui.end_row();
-                ui.label("Server");
-                ui.text_edit_singleline(&mut state.settings.address);
-                ui.end_row();
-                ui.label("Sprite:");
-                ui.horizontal_centered(|ui| {
-                    ui.add(
-                        DragValue::new(&mut state.settings.sprite)
-                            .clamp_range(0u32..=55u32)
-                            .speed(0.1),
-                    );
-
-                    sprite_preview(ui, &assets.sprites.egui, time, state.settings.sprite);
-                });
-                ui.end_row();
+        ui.add_enabled_ui(!state.loading, |ui| {
+            ui.horizontal(|ui| {
+                ui.selectable_value(&mut state.tab, UiTab::Login, "Login");
+                ui.selectable_value(&mut state.tab, UiTab::Create, "Create character");
             });
             ui.separator();
-            ui.horizontal(|ui| {
-                if ui.button("Login").clicked() {
-                    let mut network = NetworkClient::new();
-                    network.connect(state.settings.address.clone());
-
-                    // ! TODO
-                    network.send(ClientMessage::Hello(state.settings.name.clone(), state.settings.sprite));
-                    state.network = Some(network);
-                }
-                if is_connecting {
-                    ui.spinner();
-                }
-            });
+            match state.tab {
+                UiTab::Login => draw_login(ui, state, assets),
+                UiTab::Create => draw_create(ui, state, assets),
+            }
         });
     });
 }
 
-pub async fn title_screen(assets: Rc<Assets>) -> NetworkClient {
-    let settings = std::fs::read_to_string(Settings::path())
-        .ok()
-        .and_then(|settings| toml::from_str(&settings).ok())
-        .unwrap_or_default();
+pub async fn title_screen(assets: Rc<Assets>) -> (ClientId, Network) {
+    let settings = Settings::load().unwrap_or_default();
 
     let mut state = UiState {
-        settings,
-        network: None,
+        network: Network::connect(&settings.address),
+        error: None,
+        tab: UiTab::Login,
+        loading: true,
+        username: settings.username,
+        save_password: settings.password.is_some(),
+        password: settings.password.unwrap_or_default(),
+        character_name: String::new(),
     };
 
     loop {
+        // network
+        if let Some(event) = state.network.try_receive() {
+            match event.network() {
+                StoredNetEvent::Connected(_, _) => {
+                    state.loading = false;
+                }
+                StoredNetEvent::Accepted(_, _) => unreachable!(),
+                StoredNetEvent::Message(_, bytes) => {
+                    let message = bincode::deserialize(&bytes).unwrap();
+                    match message {
+                        ServerMessage::JoinGame(client_id) => {
+                            let settings = Settings {
+                                address: settings.address,
+                                username: state.username,
+                                password: state.save_password.then(|| state.password),
+                            };
+
+                            if let Err(e) = settings.save() {
+                                println!("Couldn't write settings, just fyi: {:?}", e);
+                            }
+
+                            return (client_id, state.network);
+                        }
+                        ServerMessage::FailedJoin(reason) => {
+                            state.error = Some(reason.to_string());
+                            state.loading = false;
+                        }
+                        _ => unreachable!(),
+                    }
+                }
+                StoredNetEvent::Disconnected(_) => {
+                    state.loading = true;
+                    state.network = Network::connect(&settings.address);
+                }
+            }
+        }
+
         // update
         egui_macroquad::ui(|egui_ctx| draw_ui(egui_ctx, &mut state, &assets));
-
-        let is_online = state
-            .network
-            .as_ref()
-            .map_or(false, |n| n.status() == NetworkStatus::Connected);
-
-        if is_online {
-            let written = toml::to_string_pretty(&state.settings)
-                .ok()
-                .and_then(|toml| std::fs::write("./settings.toml", toml).ok())
-                .is_some();
-
-            if !written {
-                println!("Couldn't write settings, just fyi");
-            }
-
-            return state.network.unwrap();
-        }
 
         // draw
         clear_background(color::BLACK);

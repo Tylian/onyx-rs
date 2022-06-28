@@ -1,4 +1,11 @@
-use std::{cell::{Ref, RefCell}, collections::HashMap, ffi::OsStr, fs::File, io::BufReader, path::{PathBuf, Path}};
+use std::{
+    cell::{Ref, RefCell},
+    collections::HashMap,
+    ffi::OsStr,
+    fs::File,
+    io::BufReader,
+    path::{Path, PathBuf},
+};
 
 use anyhow::{anyhow, Result};
 use macroquad::prelude::*;
@@ -49,7 +56,7 @@ impl Assets {
     fn asset_path(source: impl AsRef<Path>) -> PathBuf {
         let mut path = common::client_runtime!();
         path.push("assets");
-        path.push(source); 
+        path.push(source);
         path
     }
 
@@ -97,8 +104,9 @@ impl Assets {
 
         if !tilesets.contains_key("default.png") {
             Err(anyhow!(
-                "the file \"{}\" does not exist, but it is required to exist"
-            , Self::asset_path("tilesets/default.png").display()))
+                "the file \"{}\" does not exist, but it is required to exist",
+                Self::asset_path("tilesets/default.png").display()
+            ))
         } else {
             Ok(tilesets)
         }
@@ -141,14 +149,25 @@ impl Assets {
         Ok(music)
     }
 
-    pub fn play_music(&self, file_name: &str) {
+    pub fn toggle_music(&self, music: Option<&str>) {
+        if let Some(music) = music {
+            self.play_music(music);
+        } else {
+            self.stop_music();
+        }
+    }
+
+    fn play_music(&self, file_name: &str) {
+        let mut path = Self::asset_path("music");
+        path.push(file_name);
+
         match self.current_sink.replace(None) {
             Some((current_file, sink)) if current_file == file_name => {
                 self.current_sink.replace(Some((current_file, sink)));
             }
             _ => {
                 let sink = Sink::try_new(&self.stream_handle).unwrap();
-                let file = BufReader::new(File::open(format!("./assets/music/{file_name}")).unwrap());
+                let file = BufReader::new(File::open(path).unwrap());
                 let source = Decoder::new(file).unwrap().repeat_infinite();
                 #[cfg(debug_assertions)]
                 sink.set_volume(0.4);
@@ -159,7 +178,7 @@ impl Assets {
         }
     }
 
-    pub fn stop_music(&self) {
+    fn stop_music(&self) {
         self.current_sink.replace(None);
     }
 }

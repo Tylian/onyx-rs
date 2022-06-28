@@ -1,6 +1,6 @@
 mod map_editor;
 
-use egui::{TextureHandle, ScrollArea, Ui, Image, Sense, Rect, popup_below_widget, Response, Id};
+use egui::{popup_below_widget, Id, Image, Rect, Response, ScrollArea, Sense, TextureHandle, Ui};
 pub use map_editor::*;
 
 use common::SPRITE_SIZE;
@@ -51,8 +51,8 @@ pub fn sprite_preview(ui: &mut Ui, texture: &TextureHandle, time: f64, sprite: u
         (sprite_y + offset_y) as f32 * SPRITE_SIZE as f32,
     ) / texture.size_vec2();
     let size = egui::vec2(SPRITE_SIZE as f32, SPRITE_SIZE as f32) / texture.size_vec2();
-    let sprite = Image::new(texture, (SPRITE_SIZE as f32, SPRITE_SIZE as f32))
-        .uv(Rect::from_min_size(p.to_pos2(), size));
+    let sprite =
+        Image::new(texture, (SPRITE_SIZE as f32, SPRITE_SIZE as f32)).uv(Rect::from_min_size(p.to_pos2(), size));
 
     ui.add(sprite)
 }
@@ -125,7 +125,8 @@ fn option_textedit(ui: &mut Ui, value: &mut Option<String>) -> Response {
         ui.add_enabled_ui(enabled, |ui| match value.as_mut() {
             Some(text) => ui.text_edit_singleline(text),
             None => ui.label("disabled"),
-        }).inner
+        })
+        .inner
     })
     .inner
 }

@@ -9,7 +9,7 @@ use crate::{assets::Assets, game::game_screen, title::title_screen};
 mod assets;
 mod game;
 mod map;
-mod networking;
+mod network;
 mod title;
 mod ui;
 mod utils;
@@ -34,6 +34,6 @@ async fn main() {
     let assets = Assets::load().await.expect("Could not load assets");
     let assets = Rc::new(assets);
 
-    let network = title_screen(Rc::clone(&assets)).await;
-    game_screen(network, Rc::clone(&assets)).await;
+    let (client_id, network) = title_screen(Rc::clone(&assets)).await;
+    game_screen(network, client_id, Rc::clone(&assets)).await;
 }

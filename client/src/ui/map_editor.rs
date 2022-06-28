@@ -1,17 +1,17 @@
 use std::collections::HashMap;
 
 use common::{
-    network::{AreaData, MapId, MapLayer, MapSettings, TileAnimation},
+    network::{ZoneData, MapId, MapLayer, MapSettings, TileAnimation},
     TILE_SIZE,
 };
-use egui::{collapsing_header::CollapsingState, menu, Color32, DragValue, Grid, Response, RichText, Ui, WidgetText};
+use egui::{collapsing_header::CollapsingState, menu, Color32, DragValue, Grid, Response, RichText, Ui, WidgetText, Layout};
 use strum::IntoEnumIterator;
 
 use crate::{assets::Assets, map::Tile};
 
 use super::tile_selector;
 
-pub fn area_radio(ui: &mut Ui, selected: bool, title: &str, description: &str) -> Response {
+pub fn zone_radio(ui: &mut Ui, selected: bool, title: &str, description: &str) -> Response {
     ui.radio(selected, title).on_hover_ui(|ui| {
         ui.heading(title);
         ui.label(description);
@@ -47,7 +47,7 @@ fn map_selector(ui: &mut Ui, id: &str, value: &mut Option<MapId>, maps: &HashMap
 #[derive(Clone, Copy, PartialEq)]
 pub enum MapEditorTab {
     Tileset,
-    Areas,
+    Zones,
     Settings,
     Tools,
 }
@@ -85,8 +85,8 @@ pub struct MapEditor {
     is_tile_animated: bool,
     tile_animation: TileAnimation,
 
-    // areas
-    area_data: AreaData,
+    // zones
+    zone_data: ZoneData,
 
     // settings
     settings: MapSettings,
@@ -116,8 +116,8 @@ impl MapEditor {
                 bouncy: false,
             },
 
-            // area
-            area_data: AreaData::Blocked,
+            // zones
+            zone_data: ZoneData::Blocked,
 
             // settings
             id: MapId::start(),
@@ -150,20 +150,22 @@ impl MapEditor {
                     ui.close_menu();
                 }
             });
-            ui.add_space(6.0);
             ui.separator();
 
-            ui.selectable_value(&mut self.tab, MapEditorTab::Tileset, "Tileset");
-            ui.selectable_value(&mut self.tab, MapEditorTab::Areas, "Areas");
-            ui.selectable_value(&mut self.tab, MapEditorTab::Settings, "Settings");
-            ui.selectable_value(&mut self.tab, MapEditorTab::Tools, "Tools");
+            ui.with_layout(Layout::right_to_left(), |ui| {
+                ui.separator();
+                ui.selectable_value(&mut self.tab, MapEditorTab::Tileset, "Tileset");
+                ui.selectable_value(&mut self.tab, MapEditorTab::Zones, "Zones");
+                ui.selectable_value(&mut self.tab, MapEditorTab::Settings, "Settings");
+                ui.selectable_value(&mut self.tab, MapEditorTab::Tools, "Tools");
+            });
         });
 
         ui.separator();
 
         let tab_wants = match self.tab {
             MapEditorTab::Tileset => self.show_tileset_tab(ui, assets),
-            MapEditorTab::Areas => self.show_area_tab(ui),
+            MapEditorTab::Zones => self.show_zone_tab(ui),
             MapEditorTab::Settings => self.show_settings_tab(ui, assets),
             MapEditorTab::Tools => self.show_tools_tab(ui),
         };
@@ -231,47 +233,43 @@ impl MapEditor {
         MapEditorWants::Nothing
     }
 
-    fn show_area_tab(&mut self, ui: &mut Ui) -> MapEditorWants {
+    fn show_zone_tab(&mut self, ui: &mut Ui) -> MapEditorWants {
         ui.horizontal(|ui| {
             ui.group(|ui| {
                 ui.vertical(|ui| {
-                    ui.heading("Area type");
-                    let response = area_radio(
+                    ui.heading("Zone type");
+                    let response = zone_radio(
                         ui,
-                        matches!(self.area_data, AreaData::Blocked),
+                        matches!(self.zone_data, ZoneData::Blocked),
                         "Blocked",
-                        "Entities are blocked from entering this area.",
+                        "Entities are blocked from entering this zone.",
                     );
                     if response.clicked() {
-                        self.area_data = AreaData::Blocked;
+                        self.zone_data = ZoneData::Blocked;
                     }
 
-                    let response = area_radio(
+                    let response = zone_radio(
                         ui,
-                        matches!(self.area_data, AreaData::Warp(_, _, _)),
+                        matches!(self.zone_data, ZoneData::Warp(_, _, _)),
                         "Warp",
                         "Teleports a player somewhere else",
                     );
                     if response.clicked() {
-                        self.area_data = AreaData::Warp(
-                            MapId(0),
-                            mint::Point2 { x: 0.0, y: 0.0 },
-                            None,
-                        );
+                        self.zone_data = ZoneData::Warp(MapId(0), mint::Point2 { x: 0.0, y: 0.0 }, None);
                     }
                 });
             });
 
             ui.group(|ui| {
                 ui.vertical(|ui| {
-                    ui.heading("Area data");
-                    Grid::new("area data")
+                    ui.heading("Zone data");
+                    Grid::new("zone data")
                         .num_columns(2)
-                        .show(ui, |ui| match &mut self.area_data {
-                            AreaData::Blocked => {
+                        .show(ui, |ui| match &mut self.zone_data {
+                            ZoneData::Blocked => {
                                 ui.label("Blocked has no values");
                             }
-                            AreaData::Warp(map_id, position, direction) => {
+                            ZoneData::Warp(map_id, position, direction) => {
                                 ui.label("Map:");
                                 egui::ComboBox::from_id_source("warp map")
                                     .selected_text(format!("{}. {}", map_id.0, self.maps.get(map_id).unwrap()))
@@ -356,7 +354,7 @@ impl MapEditor {
                 .show_ui(ui, |ui| {
                     if ui.selectable_label(self.settings.music.is_none(), "None").clicked() {
                         self.settings.music = None;
-                        assets.stop_music();
+                        assets.toggle_music(self.settings.music.as_deref());
                     }
                     ui.separator();
 
@@ -366,7 +364,7 @@ impl MapEditor {
                             .clicked()
                         {
                             self.settings.music = Some(item.clone());
-                            assets.play_music(&item);
+                            assets.toggle_music(self.settings.music.as_deref());
                         }
                     }
                 });
@@ -526,8 +524,8 @@ impl MapEditor {
         }
     }
 
-    pub fn area_data(&self) -> &AreaData {
-        &self.area_data
+    pub fn zone_data(&self) -> &ZoneData {
+        &self.zone_data
     }
 
     pub fn map_settings(&self) -> (MapId, &MapSettings) {

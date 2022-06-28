@@ -1,18 +1,19 @@
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use common::network::{AreaData, ChatMessage, ClientId, ClientMessage, Direction, MapId, MapLayer, ServerMessage};
+use common::network::{ZoneData, ChatMessage, ClientId, ClientMessage, Direction, MapId, MapLayer, ServerMessage};
 use common::{RUN_SPEED, SPRITE_SIZE, TILE_SIZE, WALK_SPEED};
 use glam::{vec2, IVec2, Vec2};
 use macroquad::{color, prelude::*};
+use message_io::node::StoredNetEvent;
 
 use self::player::{Animation, Player, Tween};
+use crate::network::Network;
 use crate::{
     assets::Assets,
-    map::{draw_area, Area, Map},
-    networking::{NetworkClient, NetworkStatus},
+    map::{draw_zone, Zone, Map},
     ui::{MapEditor, MapEditorTab, MapEditorWants},
-    utils::draw_text_shadow
+    utils::draw_text_shadow,
 };
 
 mod player;
@@ -44,9 +45,9 @@ impl Default for UiState {
 
 struct GameState {
     assets: Rc<Assets>,
-    network: NetworkClient,
+    network: Network,
     players: HashMap<ClientId, Player>,
-    local_player: Option<ClientId>,
+    local_player: ClientId,
     map: Map,
     ui: UiState,
     start_time: f64,
@@ -57,12 +58,12 @@ struct GameState {
 }
 
 impl GameState {
-    fn new(network: NetworkClient, assets: Rc<Assets>) -> Self {
+    fn new(network: Network, client_id: ClientId, assets: Rc<Assets>) -> Self {
         Self {
             assets,
             network,
             players: Default::default(),
-            local_player: Default::default(),
+            local_player: client_id,
             map: Map::new(MapId(0), 20, 15),
             ui: Default::default(),
             last_movement: Default::default(),
@@ -118,9 +119,9 @@ impl GameState {
                     && sprite_rect.bottom() < map_height
                     && !self
                         .map
-                        .areas
+                        .zones
                         .iter()
-                        .any(|attrib| attrib.data == AreaData::Blocked && attrib.position.overlaps(&sprite_rect));
+                        .any(|attrib| attrib.data == ZoneData::Blocked && attrib.position.overlaps(&sprite_rect));
 
                 if valid {
                     player.position = new_position;
@@ -134,85 +135,100 @@ impl GameState {
     }
 
     fn update_network(&mut self) {
-        if self.network.status() != NetworkStatus::Connected {
-            return;
-        }
-
-        let time = self.time;
-        while let Some(message) = self.network.try_recv() {
-            log::debug!("{:?}", message);
-            match message {
-                ServerMessage::Hello(id) => {
-                    self.local_player = Some(id);
+        while let Some(event) = self.network.try_receive() {
+            match event.network() {
+                StoredNetEvent::Connected(_, _) => (),
+                StoredNetEvent::Accepted(_, _) => unreachable!(),
+                StoredNetEvent::Message(_, bytes) => {
+                    let message = bincode::deserialize(&bytes).unwrap();
+                    self.handle_message(message);
                 }
-                ServerMessage::PlayerJoined(id, player_data) => {
-                    self.players.insert(id, Player::from_network(id, player_data));
-                }
-                ServerMessage::PlayerLeft(id) => {
-                    // self.players.retain(|p| p.id != id);
-                    self.players.remove(&id);
-                }
-                ServerMessage::Message(message) => {
-                    self.ui.chat_messages.push(message);
-                }
-                ServerMessage::ChangeMap(_id, _revision) => {
-                    self.players.clear();
-                    self.ui.map_editor_shown = false;
-                    self.network.send(ClientMessage::RequestMap);
-                }
-                ServerMessage::PlayerMove {
-                    client_id,
-                    position,
-                    direction,
-                    velocity,
-                } => {
-                    if let Some(player) = self.players.get_mut(&client_id) {
-                        player.position = position.into();
-                        player.direction = direction;
-                        if let Some(velocity) = velocity {
-                            let velocity = Vec2::from(velocity);
-                            player.animation = Animation::Walking {
-                                start: time,
-                                speed: velocity.length() as f64,
-                            };
-                            player.tween = Some(Tween {
-                                velocity,
-                                last_update: time,
-                            });
-                        } else {
-                            player.animation = Animation::Standing;
-                            player.tween = None;
-                        }
-                    }
-                }
-                ServerMessage::MapData(remote) => {
-                    match Map::try_from(*remote) {
-                        Ok(map) => self.map = map,
-                        Err(err) => {
-                            log::error!("Error converting remote map: {err:?}")
-                        }
-                    };
-                    if let Some(music) = &self.map.settings.music {
-                        self.assets.play_music(music);
-                    } else {
-                        self.assets.stop_music();
-                    }
-                    self.assets.set_tileset(&self.map.settings.tileset).unwrap();
-                }
-                ServerMessage::MapEditor {
-                    id,
-                    width,
-                    height,
-                    settings,
-                    maps,
-                } => {
-                    self.ui.map_editor.set_maps(maps);
-                    self.ui.map_editor.set_map_size(width, height);
-                    self.ui.map_editor.set_settings(id, settings);
-                    self.ui.map_editor_shown = true;
-                }
+                StoredNetEvent::Disconnected(_) => todo!(),
             }
         }
+    }
+
+    fn handle_message(&mut self, message: ServerMessage) {
+        use ServerMessage::*;
+
+        log::debug!("{:?}", message);
+        let time = self.time;
+        match message {
+            JoinGame(_) | FailedJoin(_) => unreachable!(),
+
+            PlayerJoined(id, player_data) => {
+                self.players.insert(id, Player::from_network(id, player_data));
+            }
+            PlayerLeft(id) => {
+                self.players.remove(&id);
+            }
+            Message(message) => {
+                self.ui.chat_messages.push(message);
+            }
+            ChangeMap(id, revision) => {
+                self.players.clear();
+                self.ui.map_editor_shown = false;
+
+                let map = Map::from_cache(id);
+                let needs_map = map
+                    .as_ref()
+                    .map(|map| map.settings.revision == revision)
+                    .unwrap_or(true);
+
+                if needs_map {
+                    self.network.send(ClientMessage::RequestMap);
+                } else {
+                    self.map = map.unwrap();
+                }
+            }
+            PlayerMove {
+                client_id,
+                position,
+                direction,
+                velocity,
+            } => {
+                if let Some(player) = self.players.get_mut(&client_id) {
+                    player.position = position.into();
+                    player.direction = direction;
+                    if let Some(velocity) = velocity {
+                        let velocity = Vec2::from(velocity);
+                        player.animation = Animation::Walking {
+                            start: time,
+                            speed: velocity.length() as f64,
+                        };
+                        player.tween = Some(Tween {
+                            velocity,
+                            last_update: time,
+                        });
+                    } else {
+                        player.animation = Animation::Standing;
+                        player.tween = None;
+                    }
+                }
+            }
+            MapData(remote) => {
+                let map = Map::try_from(*remote).unwrap();
+                self.change_map(map);
+            }
+            MapEditor {
+                id,
+                width,
+                height,
+                settings,
+                maps,
+            } => {
+                self.ui.map_editor.set_maps(maps);
+                self.ui.map_editor.set_map_size(width, height);
+                self.ui.map_editor.set_settings(id, settings);
+                self.ui.map_editor_shown = true;
+            }
+        }
+    }
+
+    fn change_map(&mut self, map: Map) {
+        self.map = map;
+        self.assets.toggle_music(self.map.settings.music.as_deref());
+        self.assets.set_tileset(&self.map.settings.tileset).unwrap();
     }
 
     fn chat_window(&mut self, ctx: &egui::Context) {
@@ -343,7 +359,7 @@ impl GameState {
 
     fn update_input(&mut self) {
         if !self.ui.block_keyboard {
-            if let Some(player) = self.local_player.and_then(|id| self.players.get_mut(&id)) {
+            if let Some(player) = self.players.get_mut(&self.local_player) {
                 let movement = if is_key_down(KeyCode::Up) || is_key_down(KeyCode::W) {
                     Some(Direction::North)
                 } else if is_key_down(KeyCode::Down) || is_key_down(KeyCode::S) {
@@ -437,12 +453,12 @@ impl GameState {
                             }
                         }
                     }
-                    MapEditorTab::Areas => {
+                    MapEditorTab::Zones => {
                         let mouse_position = self.camera.screen_to_world(mouse_position().into());
                         if is_mouse_button_pressed(MouseButton::Right) {
-                            for (i, attrib) in self.map.areas.iter().enumerate().rev() {
+                            for (i, attrib) in self.map.zones.iter().enumerate().rev() {
                                 if attrib.position.contains(mouse_position) {
-                                    self.map.areas.swap_remove(i);
+                                    self.map.zones.swap_remove(i);
                                     break;
                                 }
                             }
@@ -456,9 +472,9 @@ impl GameState {
 
                             let drag_rect = Rect::new(start.x, start.y, size.x, size.y);
 
-                            self.map.areas.push(Area {
+                            self.map.zones.push(Zone {
                                 position: drag_rect,
-                                data: self.ui.map_editor.area_data().clone(),
+                                data: self.ui.map_editor.zone_data().clone(),
                             });
                         } else if self.ui.drag_start.is_none() && mouse_down {
                             self.ui.drag_start = Some(mouse_position);
@@ -471,7 +487,7 @@ impl GameState {
     }
 
     fn update_camera(&mut self) {
-        if let Some(player) = self.local_player.and_then(|id| self.players.get_mut(&id)) {
+        if let Some(player) = self.players.get_mut(&self.local_player) {
             let min = Vec2::ZERO;
             let max = vec2(
                 self.map.width as f32 * TILE_SIZE as f32 - screen_width(),
@@ -516,7 +532,7 @@ impl GameState {
         self.map.draw_layer(MapLayer::Fringe2, self.time, &self.assets);
 
         if self.ui.map_editor_shown {
-            self.map.draw_areas(&self.assets);
+            self.map.draw_zones(&self.assets);
             if let Some(drag_start) = self.ui.drag_start {
                 let mouse = self.camera.screen_to_world(mouse_position().into());
                 let start = drag_start.min(mouse);
@@ -524,24 +540,25 @@ impl GameState {
                 let size = end - start;
 
                 let drag_rect = Rect::new(start.x, start.y, size.x, size.y);
-                draw_area(drag_rect, self.ui.map_editor.area_data(), &self.assets);
+                draw_zone(drag_rect, self.ui.map_editor.zone_data(), &self.assets);
             }
         }
 
         draw_text_shadow(
-            &format!("map: {:?}", self.map.id),
+            &self.map.settings.name,
             vec2(2.0, 2.0),
             TextParams {
                 font: self.assets.font,
                 color: color::WHITE,
+                font_size: 20,
                 ..Default::default()
             },
         );
     }
 }
 
-pub async fn game_screen(network: NetworkClient, assets: Rc<Assets>) {
-    let mut state = GameState::new(network, assets);
+pub async fn game_screen(network: Network, client_id: ClientId, assets: Rc<Assets>) {
+    let mut state = GameState::new(network, client_id, assets);
 
     loop {
         state.update();
