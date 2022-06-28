@@ -2,11 +2,9 @@ use std::path::PathBuf;
 
 use crate::player::Player as PlayerState;
 use anyhow::Result;
-use common::network::{Direction, MapId};
+use common::network::{Direction, MapId, PlayerFlags};
 use euclid::default::Point2D;
 use serde::{Deserialize, Serialize};
-
-// TODO store passwords hashed
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Player {
@@ -17,6 +15,7 @@ pub struct Player {
     pub position: Point2D<f32>,
     pub direction: Direction,
     pub map: MapId,
+    pub flags: PlayerFlags
 }
 
 impl Default for Player {
@@ -29,6 +28,7 @@ impl Default for Player {
             position: Default::default(),
             direction: Direction::South,
             map: MapId::start(),
+            flags: PlayerFlags::default(),
         }
     }
 }
@@ -44,6 +44,7 @@ impl From<Player> for PlayerState {
             direction: other.direction,
             velocity: None,
             map: other.map,
+            flags: other.flags
         }
     }
 }
@@ -58,6 +59,7 @@ impl From<PlayerState> for Player {
             position: other.position,
             direction: other.direction,
             map: other.map,
+            flags: other.flags,
         }
     }
 }

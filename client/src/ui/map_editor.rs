@@ -54,7 +54,7 @@ pub enum Tab {
     Tools,
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone)]
 pub enum Wants {
     /// Map editor wishes to exit *while* saving changes
     Save,
@@ -64,6 +64,8 @@ pub enum Wants {
     Warp(MapId),
     /// Map editor wishes to resize the map
     Resize(u32, u32),
+    /// Map editor wishes to fill the layer with a tile
+    Fill(MapLayer, Option<Tile>)
 }
 
 pub struct MapEditorUpdate {
@@ -91,7 +93,6 @@ pub struct MapEditor {
     // settings
     settings: MapSettings,
     id: MapId,
-    increment_revision: bool,
 
     // tools
     maps: HashMap<MapId, String>,
@@ -123,7 +124,6 @@ impl MapEditor {
             // settings
             id: MapId::start(),
             settings: MapSettings::default(),
-            increment_revision: true,
 
             // tools
             maps: HashMap::new(),
@@ -159,9 +159,6 @@ impl MapEditor {
             ui.menu_button("File", |ui| {
                 if ui.button("Save").clicked() {
                     self.wants = Some(Wants::Save);
-                    if self.increment_revision {
-                        self.settings.revision += 1;
-                    }
                     ui.close_menu();
                     *show = false;
                 }
@@ -169,6 +166,16 @@ impl MapEditor {
                     self.wants = Some(Wants::Close);
                     ui.close_menu();
                     *show = false;
+                }
+            });
+            ui.menu_button("Edit", |ui| {
+                if ui.button("Fill layer").clicked() {
+                    self.wants = Some(Wants::Fill(self.layer, Some(self.tile())));
+                    ui.close_menu();
+                }
+                if ui.button("Clear layer").clicked() {
+                    self.wants = Some(Wants::Fill(self.layer, None));
+                    ui.close_menu();
                 }
             });
 
@@ -219,7 +226,7 @@ impl MapEditor {
                         ui.add(
                             DragValue::new(&mut self.tile_animation.duration)
                                 .speed(0.01f64)
-                                .clamp_range(0f64..=f64::MAX)
+                                .clamp_range(0.0..=f64::MAX)
                                 .suffix("s"),
                         );
                         ui.end_row();
@@ -228,7 +235,7 @@ impl MapEditor {
                         ui.add(
                             DragValue::new(&mut self.tile_animation.frames)
                                 .speed(0.1f64)
-                                .clamp_range(0f64..=f64::MAX),
+                                .clamp_range(0.0..=f64::MAX),
                         );
                         ui.end_row();
                     });
@@ -327,8 +334,6 @@ impl MapEditor {
     }
 
     pub fn show_settings_tab(&mut self, ui: &mut Ui, assets: &Assets) {
-        let shift = ui.ctx().input().modifiers.shift;
-
         ui.heading("Map properties");
         Grid::new("properties").num_columns(2).show(ui, |ui| {
             ui.label("Name:");
@@ -336,7 +341,7 @@ impl MapEditor {
             ui.end_row();
 
             ui.label("Internal id:");
-            ui.label(self.id.0.to_string());
+            ui.add_enabled(false, DragValue::new(&mut self.id.0));
             ui.end_row();
 
             ui.label("Tileset:");
@@ -380,20 +385,10 @@ impl MapEditor {
                 });
             ui.end_row();
 
-            ui.label("Revision:");
-            ui.add_enabled(
-                shift,
-                DragValue::new(&mut self.settings.revision)
-                    .clamp_range(0..=u32::MAX)
-                    .speed(0.1),
-            )
-            .on_disabled_hover_ui(|ui| {
-                ui.colored_label(Color32::RED, "Manually changing this value may break a lot of things");
-                ui.label("Hold shift to enable editing");
-            });
+            ui.label("Cache key:");
+            ui.add_enabled(false, DragValue::new(&mut self.settings.cache_key));
             ui.end_row();
         });
-        ui.checkbox(&mut self.increment_revision, "Increment revision on save");
 
         ui.add_space(6.0);
 

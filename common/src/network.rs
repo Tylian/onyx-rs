@@ -35,7 +35,7 @@ pub enum ClientMessage {
     RequestMap,
     SaveMap(Box<Map>),
     Warp(MapId, Option<Point2<f32>>),
-    MapEditor,
+    MapEditor(bool),
 }
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Debug)]
@@ -51,7 +51,7 @@ pub enum ServerMessage {
         velocity: Option<Vector2<f32>>,
     },
     Message(ChatChannel, String),
-    ChangeMap(MapId, u32),
+    ChangeMap(MapId, i64),
     MapData(Box<Map>),
     MapEditor {
         maps: HashMap<MapId, String>,
@@ -60,6 +60,7 @@ pub enum ServerMessage {
         height: u32,
         settings: MapSettings,
     },
+    Flags(ClientId, PlayerFlags)
 }
 
 #[derive(Copy, Clone, Serialize, Deserialize, PartialEq, Debug)]
@@ -98,10 +99,10 @@ impl Direction {
     }
     pub fn offset_f32(&self) -> Vector2<f32> {
         match self {
-            Direction::South => Vector2 { x: 0., y: 1. },
-            Direction::West => Vector2 { x: -1., y: 0. },
-            Direction::East => Vector2 { x: 1., y: 0. },
-            Direction::North => Vector2 { x: 0., y: -1. },
+            Direction::South => Vector2 { x: 0.0, y: 1.0 },
+            Direction::West => Vector2 { x: -1.0, y: 0.0 },
+            Direction::East => Vector2 { x: 1.0, y: 0.0 },
+            Direction::North => Vector2 { x: 0.0, y: -1.0 },
         }
     }
     pub fn offset_i32(&self) -> Vector2<i32> {
@@ -141,8 +142,15 @@ impl From<Direction> for Vector2<i32> {
 pub struct Player {
     pub name: String,
     pub position: Point2<f32>,
+    pub velocity: Option<Vector2<f32>>,
     pub sprite: u32,
     pub direction: Direction,
+    pub flags: PlayerFlags,
+}
+
+#[derive(Copy, Clone, Serialize, Deserialize, PartialEq, Debug, Default)]
+pub struct PlayerFlags {
+    pub in_map_editor: bool
 }
 
 #[derive(Copy, Clone, Serialize, Deserialize, PartialEq, Debug)]
@@ -151,6 +159,7 @@ pub enum ChatChannel {
     Server,
     Say,
     Global,
+    Error,
 }
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Debug)]
@@ -238,7 +247,7 @@ pub struct MapSettings {
     pub tileset: String,
     pub music: Option<String>,
     pub warps: BoundryWarps,
-    pub revision: u32,
+    pub cache_key: i64,
 }
 
 impl Default for MapSettings {
@@ -248,7 +257,7 @@ impl Default for MapSettings {
             tileset: String::from("default.png"),
             music: None,
             warps: BoundryWarps::default(),
-            revision: 0,
+            cache_key: i64::MIN,
         }
     }
 }
@@ -259,6 +268,18 @@ pub struct BoundryWarps {
     pub east: Option<MapId>,
     pub south: Option<MapId>,
     pub west: Option<MapId>,
+}
+
+impl BoundryWarps {
+    pub fn iter(&self) -> impl Iterator<Item = (Direction, Option<&MapId>)> {
+        let vec = vec![
+            (Direction::North, self.north.as_ref()),
+            (Direction::East, self.east.as_ref()),
+            (Direction::South, self.south.as_ref()),
+            (Direction::West, self.west.as_ref()),
+        ];
+        vec.into_iter()
+    }
 }
 
 #[derive(Copy, Clone, Serialize, Deserialize, PartialEq, Debug)]

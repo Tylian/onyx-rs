@@ -11,7 +11,7 @@ use message_io::node::StoredNetEvent;
 
 use self::{
     map::{draw_zone, Map, Zone},
-    player::{Animation, Player, Tween},
+    player::{Animation, Player},
 };
 use crate::{
     assets::Assets,
@@ -104,10 +104,21 @@ impl GameState {
     }
 
     fn update_players(&mut self) {
+        let player_boxes = self.players.iter()
+            .filter(|(cid, _player)| self.local_player != **cid)
+            .map(|(_cid, player)| Rect::new(
+                player.position.x,
+                player.position.y + SPRITE_SIZE as f32 / 2.0,
+                SPRITE_SIZE as f32,
+                SPRITE_SIZE as f32 / 2.0,
+            ))
+            .collect::<Vec<_>>();
+
         for player in self.players.values_mut() {
-            if let Some(tween) = player.tween.as_mut() {
-                let offset = tween.velocity * (self.time - tween.last_update) as f32;
+            if let Some(&mut velocity) = player.velocity.as_mut() {
+                let offset = velocity * (self.time - player.last_update) as f32;
                 let new_position = player.position + offset;
+
                 // only block on the bottom half of the sprite, feels better
                 let sprite_rect = Rect::new(
                     new_position.x,
@@ -117,15 +128,19 @@ impl GameState {
                 );
                 let (map_width, map_height) = self.map.pixel_size();
 
-                let valid = sprite_rect.left() >= 0.0
+                let mut valid = sprite_rect.left() >= 0.0
                     && sprite_rect.top() >= 0.0
                     && sprite_rect.right() < map_width
-                    && sprite_rect.bottom() < map_height
-                    && !self
-                        .map
-                        .zones
-                        .iter()
-                        .any(|attrib| attrib.data == ZoneData::Blocked && attrib.position.overlaps(&sprite_rect));
+                    && sprite_rect.bottom() < map_height;
+
+                if !player.flags.in_map_editor {
+                    valid &= !player_boxes.iter()
+                        .any(|b| b.overlaps(&sprite_rect));
+
+                    valid &= !self.map.zones.iter()
+                        .filter(|zone| zone.data == ZoneData::Blocked)
+                        .any(|zone| zone.position.overlaps(&sprite_rect));
+                }
 
                 if valid {
                     player.position = new_position;
@@ -133,7 +148,7 @@ impl GameState {
 
                 // ? need to update anyway even if we don't change anything
                 // ? if we don't you can clip through stuff by walking against it for awhile
-                tween.last_update = self.time;
+                player.last_update = self.time;
             }
         }
     }
@@ -174,6 +189,7 @@ impl GameState {
         self.ui
             .map_editor
             .show(ctx, &self.assets, &mut self.ui.map_editor_shown);
+        
         match self.ui.map_editor.wants() {
             None => (),
             Some(Wants::Save) => {
@@ -183,8 +199,10 @@ impl GameState {
 
                 let data = Box::new(self.map.clone().into());
                 self.network.send(ClientMessage::SaveMap(data));
+                self.network.send(ClientMessage::MapEditor(false));
             }
             Some(Wants::Close) => {
+                self.network.send(ClientMessage::MapEditor(false));
                 self.network.send(ClientMessage::RequestMap);
             }
             Some(Wants::Resize(width, height)) => {
@@ -192,6 +210,9 @@ impl GameState {
             }
             Some(Wants::Warp(id)) => {
                 self.network.send(ClientMessage::Warp(id, None));
+            }
+            Some(Wants::Fill(layer, tile)) => {
+                self.map.fill(layer, tile);
             }
         }
 
@@ -239,16 +260,14 @@ impl GameState {
                             start: self.time,
                             speed,
                         };
-                        player.tween = Some(Tween {
-                            velocity,
-                            last_update: self.time,
-                        });
+                        player.velocity = Some(velocity);
+                        player.last_update = self.time;
                         player.direction = direction;
 
                         Some(velocity.into())
                     } else {
                         player.animation = Animation::Standing;
-                        player.tween = None;
+                        player.velocity = None;
                         None
                     };
 
@@ -262,7 +281,7 @@ impl GameState {
 
             // Admin
             if is_key_pressed(KeyCode::F1) {
-                self.network.send(ClientMessage::MapEditor);
+                self.network.send(ClientMessage::MapEditor(true));
             }
         }
 
@@ -345,19 +364,19 @@ impl GameState {
                 self.map.height as f32 * TILE_SIZE as f32 - screen_height(),
             );
 
-            let mut position = -vec2(screen_width() / 2., screen_height() / 2.);
-            position += player.position + vec2(24., 24.);
+            let mut position = -vec2(screen_width() / 2.0, screen_height() / 2.0);
+            position += player.position + vec2(24.0, 24.0);
             position = position.clamp(min, max);
 
             let (map_width, map_height) = self.map.pixel_size();
 
             // if the map is too small, center it
             if map_width <= screen_width() {
-                position.x = (map_width - screen_width()) / 2.;
+                position.x = (map_width - screen_width()) / 2.0;
             }
 
             if map_height <= screen_height() {
-                position.y = (map_height - screen_height()) / 2.;
+                position.y = (map_height - screen_height()) / 2.0;
             }
 
             self.clip_rect = Rect::new(position.x, position.y, screen_width(), screen_height());
@@ -369,13 +388,18 @@ impl GameState {
         clear_background(color::BLACK);
 
         let (map_width, map_height) = self.map.pixel_size();
-        draw_rectangle_lines(-3., -3., map_width + 6., map_height + 6., 6., color::GRAY);
+        draw_rectangle_lines(-3.0, -3.0, map_width + 6.0, map_height + 6.0, 6.0, color::GRAY);
 
         self.map.draw_layer(MapLayer::Ground, self.time, &self.assets);
         self.map.draw_layer(MapLayer::Mask, self.time, &self.assets);
         self.map.draw_layer(MapLayer::Mask2, self.time, &self.assets);
 
-        for player in self.players.values() {
+        let mut players = self.players.values()
+            .collect::<Vec<_>>();
+
+        players.sort_by(|a, b| a.position.y.partial_cmp(&b.position.y).unwrap());
+
+        for player in players {
             player.draw(self.time, &self.assets);
         }
 
@@ -428,9 +452,9 @@ impl GameState {
         use ServerMessage::*;
 
         match &message {
-            MapData(_) => (),
+            MapData(_) => log::debug!("MapData(..)"),
             message => {
-                log::debug!("{:?}", message);
+                log::debug!("{message:?}");
             }
         }
 
@@ -439,7 +463,7 @@ impl GameState {
             JoinGame(_) | FailedJoin(_) => unreachable!(),
 
             PlayerJoined(id, player_data) => {
-                self.players.insert(id, Player::from_network(id, player_data));
+                self.players.insert(id, Player::from_network(id, player_data, self.time));
             }
             PlayerLeft(id) => {
                 self.players.remove(&id);
@@ -447,21 +471,21 @@ impl GameState {
             Message(channel, message) => {
                 self.ui.chat_window.insert(channel, message);
             }
-            ChangeMap(id, revision) => {
+            ChangeMap(id, cache_id) => {
                 self.players.clear();
                 self.ui.map_editor_shown = false;
 
                 let map = Map::from_cache(id);
                 let needs_map = map
                     .as_ref()
-                    .map(|map| map.settings.revision == revision)
+                    .map(|map| map.settings.cache_key != cache_id)
                     .unwrap_or(true);
 
-                log::debug!("{:?} {}", map.as_ref().map(|map| map.settings.revision), revision);
-
                 if needs_map {
+                    log::debug!("Requesting map..");
                     self.network.send(ClientMessage::RequestMap);
                 } else {
+                    log::debug!("Loading map from");
                     self.change_map(map.unwrap());
                 }
             }
@@ -480,13 +504,11 @@ impl GameState {
                             start: time,
                             speed: velocity.length() as f64,
                         };
-                        player.tween = Some(Tween {
-                            velocity,
-                            last_update: time,
-                        });
+                        player.velocity = Some(velocity);
+                        player.last_update = time;
                     } else {
                         player.animation = Animation::Standing;
-                        player.tween = None;
+                        player.velocity = None;
                     }
                 }
             }
@@ -510,6 +532,11 @@ impl GameState {
                 });
                 self.ui.map_editor_shown = true;
             }
+            Flags(client_id, flags) => {
+                if let Some(player) = self.players.get_mut(&client_id) {
+                    player.flags = flags;
+                }
+            },
         }
     }
 }

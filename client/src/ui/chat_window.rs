@@ -1,5 +1,5 @@
 use common::network::ChatChannel;
-use egui::{Color32, Key, Response, ScrollArea, Ui, Window};
+use egui::{Color32, Key, Response, ScrollArea, Ui, Window, ComboBox, RichText};
 use egui_extras::{Size, StripBuilder};
 use macroquad::window::screen_height;
 
@@ -10,6 +10,16 @@ pub struct ChatWindow {
     channel: ChatChannel,
     message: String,
     send_message: Option<ChatMessage>,
+}
+
+fn channel_info(channel: ChatChannel) -> (Color32, &'static str) {
+    match channel {
+        ChatChannel::Echo => (Color32::WHITE, "Echo"),
+        ChatChannel::Server => (Color32::GOLD, "Server"),
+        ChatChannel::Say => (Color32::WHITE, "Say"),
+        ChatChannel::Global => (Color32::from_rgb(0x75, 0x6d, 0xd1), "Global"),
+        ChatChannel::Error => (Color32::RED, "Error")
+    }
 }
 
 impl ChatWindow {
@@ -25,9 +35,9 @@ impl ChatWindow {
     pub fn show(&mut self, ctx: &egui::Context) {
         Window::new("💬 Chat")
             .resizable(true)
-            .default_pos(egui::pos2(7., screen_height() - 198.)) // idfk lmao
-            .default_size([367., 147.])
-            .min_height(125.)
+            .default_pos(egui::pos2(7.0, screen_height() - 198.0)) // idfk lmao
+            .default_size([367.0, 147.0])
+            .min_height(125.0)
             .show(ctx, |ui| self.ui(ui));
     }
 
@@ -45,8 +55,8 @@ impl ChatWindow {
 
         let bottom_height = ui.spacing().interact_size.y;
         StripBuilder::new(ui)
-            .size(Size::remainder().at_least(100.))
-            .size(Size::exact(6.))
+            .size(Size::remainder().at_least(100.0))
+            .size(Size::exact(6.0))
             .size(Size::exact(bottom_height))
             .vertical(|mut strip| {
                 strip.cell(|ui| {
@@ -64,12 +74,23 @@ impl ChatWindow {
                 });
                 strip.strip(|builder| {
                     builder
-                        .size(Size::exact(40.))
+                        .size(Size::exact(40.0))
                         .size(Size::remainder())
-                        .size(Size::exact(40.))
+                        .size(Size::exact(40.0))
                         .horizontal(|mut strip| {
                             strip.cell(|ui| {
-                                ui.colored_label(Color32::WHITE, "Say:");
+                                fn channel_label(channel: ChatChannel) -> RichText {
+                                    let (color, text) = channel_info(channel);
+                                    RichText::new(text).color(color)
+                                }
+
+                                ComboBox::from_id_source("chat channel")
+                                    .selected_text(channel_label(self.channel))
+                                    .show_ui(ui, |ui| {
+                                        ui.selectable_value(&mut self.channel, ChatChannel::Say, channel_label(ChatChannel::Say));
+                                        ui.selectable_value(&mut self.channel, ChatChannel::Global, channel_label(ChatChannel::Global));
+                                        ui.selectable_value(&mut self.channel, ChatChannel::Server, channel_label(ChatChannel::Server));
+                                    });
                             });
                             strip.cell(|ui| {
                                 text = Some(ui.text_edit_singleline(&mut self.message));
@@ -91,18 +112,13 @@ impl ChatWindow {
     }
 
     fn message_ui(&self, ui: &mut egui::Ui, channel: ChatChannel, message: &str) {
+        let (color, name) = channel_info(channel);
         match channel {
-            ChatChannel::Echo => {
-                ui.colored_label(Color32::WHITE, message);
+            ChatChannel::Echo | ChatChannel::Error => {
+                ui.colored_label(color, message);
             }
-            ChatChannel::Server => {
-                ui.colored_label(Color32::GOLD, format!("[Server] {}", message));
-            }
-            ChatChannel::Say => {
-                ui.colored_label(Color32::WHITE, format!("[Say] {}", message));
-            }
-            ChatChannel::Global => {
-                ui.colored_label(Color32::LIGHT_BLUE, format!("[Global] {}", message));
+            ChatChannel::Server | ChatChannel::Say | ChatChannel::Global => {
+                ui.colored_label(color, format!("[{name}] {message}"));
             }
         };
     }

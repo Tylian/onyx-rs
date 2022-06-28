@@ -1,4 +1,4 @@
-use common::network::{Direction, MapId, Player as NetworkPlayer};
+use common::network::{Direction, MapId, Player as NetworkPlayer, PlayerFlags};
 use euclid::default::{Point2D, Vector2D};
 
 #[derive(Clone)]
@@ -11,6 +11,7 @@ pub struct Player {
     pub direction: Direction,
     pub velocity: Option<Vector2D<f32>>,
     pub map: MapId,
+    pub flags: PlayerFlags,
 }
 
 impl From<Player> for NetworkPlayer {
@@ -18,8 +19,10 @@ impl From<Player> for NetworkPlayer {
         Self {
             name: other.name,
             sprite: other.sprite,
+            velocity: other.velocity.map(Into::into),
             position: other.position.into(),
             direction: other.direction,
+            flags: other.flags,
         }
     }
 }
@@ -35,6 +38,7 @@ impl Player {
             direction: Direction::South,
             map,
             velocity: None,
+            flags: PlayerFlags::default(),
         }
     }
 }

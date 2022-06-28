@@ -1,5 +1,5 @@
 use common::{
-    network::{ClientId, Direction, Player as NetworkPlayer},
+    network::{ClientId, Direction, Player as NetworkPlayer, PlayerFlags},
     TILE_SIZE,
 };
 use macroquad::prelude::*;
@@ -42,32 +42,37 @@ impl Animation {
     }
 }
 
-#[derive(Copy, Clone)]
-pub struct Tween {
-    pub velocity: Vec2,
-    pub last_update: f64,
-}
-
 pub struct Player {
     pub id: ClientId,
     pub name: String,
     pub position: Vec2,
-    pub tween: Option<Tween>,
+    pub velocity: Option<Vec2>,
+    pub last_update: f64,
     pub animation: Animation,
     pub sprite: u32,
     pub direction: Direction,
+    pub flags: PlayerFlags,
 }
 
 impl Player {
-    pub fn from_network(id: ClientId, data: NetworkPlayer) -> Self {
+    pub fn from_network(id: ClientId, data: NetworkPlayer, time: f64) -> Self {
         Self {
             id,
             name: data.name,
             position: data.position.into(),
-            animation: Animation::Standing,
-            tween: None,
+            animation: if let Some(velocity) = data.velocity {
+                Animation::Walking {
+                    start: time,
+                    speed: Vec2::from(velocity).length() as f64
+                }
+            } else {
+                Animation::Standing
+            },
+            velocity: data.velocity.map(Into::into),
             sprite: data.sprite,
-            direction: Direction::South,
+            direction: data.direction,
+            last_update: time,
+            flags: data.flags,
         }
     }
 

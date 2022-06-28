@@ -30,7 +30,7 @@ pub fn tile_selector(ui: &mut Ui, texture: &TextureHandle, selected: &mut egui::
 
         let painter = ui.painter();
         let rect = Rect::from_min_size(*selected + offset, snap);
-        painter.rect_stroke(rect, 0., ui.visuals().window_stroke());
+        painter.rect_stroke(rect, 0.0, ui.visuals().window_stroke());
 
         response
     });

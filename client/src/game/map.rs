@@ -303,6 +303,13 @@ impl Map {
         pos.x >= 0 && pos.x < self.width as i32 && pos.y >= 0 && pos.y < self.height as i32
     }
 
+    pub fn fill(&mut self, layer: MapLayer, tile: Option<Tile>) {
+        self.layers
+            .get_mut(&layer)
+            .unwrap()
+            .fill(tile);
+    }
+
     pub fn tile(&self, layer: MapLayer, position: IVec2) -> Option<&Tile> {
         self.layers
             .get(&layer)
@@ -419,8 +426,8 @@ impl Map {
         }
 
         let map_rect = Rect::new(
-            0.,
-            0.,
+            0.0,
+            0.0,
             width as f32 * TILE_SIZE as f32,
             height as f32 * TILE_SIZE as f32,
         );
