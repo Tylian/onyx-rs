@@ -4,7 +4,7 @@ use std::{
 };
 
 use anyhow::Result;
-use common::network::{Zone, Map as NetworkMap, MapId, MapLayer, MapSettings, Tile};
+use common::network::{Map as NetworkMap, MapId, MapLayer, MapSettings, Tile, Zone};
 use ndarray::Array2;
 use serde::{Deserialize, Serialize};
 use strum::IntoEnumIterator;

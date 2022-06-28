@@ -9,7 +9,7 @@ use std::{
 use anyhow::Result;
 use base64ct::{Base64, Encoding};
 use common::{
-    network::{ZoneData, ChatMessage, ClientId, ClientMessage, Direction, FailJoinReason, MapId, ServerMessage},
+    network::{ChatMessage, ClientId, ClientMessage, Direction, FailJoinReason, MapId, ServerMessage, ZoneData},
     SPRITE_SIZE, TILE_SIZE,
 };
 use data::Player as PlayerData;

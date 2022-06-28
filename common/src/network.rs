@@ -219,7 +219,7 @@ impl Map {
             height,
             settings,
             layers,
-            zones: zones,
+            zones,
         }
     }
 }

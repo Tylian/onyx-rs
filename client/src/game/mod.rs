@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use common::network::{ZoneData, ChatMessage, ClientId, ClientMessage, Direction, MapId, MapLayer, ServerMessage};
+use common::network::{ChatMessage, ClientId, ClientMessage, Direction, MapId, MapLayer, ServerMessage, ZoneData};
 use common::{RUN_SPEED, SPRITE_SIZE, TILE_SIZE, WALK_SPEED};
 use glam::{vec2, IVec2, Vec2};
 use macroquad::{color, prelude::*};
@@ -11,7 +11,7 @@ use self::player::{Animation, Player, Tween};
 use crate::network::Network;
 use crate::{
     assets::Assets,
-    map::{draw_zone, Zone, Map},
+    map::{draw_zone, Map, Zone},
     ui::{MapEditor, MapEditorTab, MapEditorWants},
     utils::draw_text_shadow,
 };

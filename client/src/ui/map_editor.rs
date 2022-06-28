@@ -1,10 +1,12 @@
 use std::collections::HashMap;
 
 use common::{
-    network::{ZoneData, MapId, MapLayer, MapSettings, TileAnimation},
+    network::{MapId, MapLayer, MapSettings, TileAnimation, ZoneData},
     TILE_SIZE,
 };
-use egui::{collapsing_header::CollapsingState, menu, Color32, DragValue, Grid, Response, RichText, Ui, WidgetText, Layout};
+use egui::{
+    collapsing_header::CollapsingState, menu, Color32, DragValue, Grid, Layout, Response, RichText, Ui, WidgetText,
+};
 use strum::IntoEnumIterator;
 
 use crate::{assets::Assets, map::Tile};

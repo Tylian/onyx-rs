@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use anyhow::Result;
-use common::network::{ZoneData, Map as NetworkMap, MapId, MapLayer, MapSettings, TileAnimation};
+use common::network::{Map as NetworkMap, MapId, MapLayer, MapSettings, TileAnimation, ZoneData};
 use common::TILE_SIZE;
 use macroquad::prelude::*;
 use ndarray::{azip, indices, Array2, Zip};

@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use common::network::{Zone as NetworkZone, Map as NetworkMap, MapLayer, Tile as NetworkTile};
+use common::network::{Map as NetworkMap, MapLayer, Tile as NetworkTile, Zone as NetworkZone};
 use macroquad::prelude::*;
 use mint::{Point2, Vector2};
 use ndarray::Array2;
@@ -9,7 +9,7 @@ use thiserror::Error;
 
 use crate::ensure;
 
-use super::{Zone, Map, Tile};
+use super::{Map, Tile, Zone};
 
 #[derive(Debug, Error)]
 pub enum MapError {
