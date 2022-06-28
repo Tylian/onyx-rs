@@ -5,11 +5,11 @@ use common::{
     TILE_SIZE,
 };
 use egui::{
-    collapsing_header::CollapsingState, menu, Color32, DragValue, Grid, Layout, Response, RichText, Ui, WidgetText,
+    collapsing_header::CollapsingState, menu, Color32, DragValue, Grid, Response, RichText, Ui, WidgetText, Window,
 };
 use strum::IntoEnumIterator;
 
-use crate::{assets::Assets, map::Tile};
+use crate::{assets::Assets, game::map::Tile};
 
 use super::tile_selector;
 
@@ -47,7 +47,7 @@ fn map_selector(ui: &mut Ui, id: &str, value: &mut Option<MapId>, maps: &HashMap
 }
 
 #[derive(Clone, Copy, PartialEq)]
-pub enum MapEditorTab {
+pub enum Tab {
     Tileset,
     Zones,
     Settings,
@@ -55,30 +55,28 @@ pub enum MapEditorTab {
 }
 
 #[derive(Clone, PartialEq)]
-pub enum MapEditorWants {
-    Nothing,
+pub enum Wants {
+    /// Map editor wishes to exit *while* saving changes
     Save,
+    /// Map editor wishes to exit *without* saving changes
     Close,
-    /// Map editor wishes to be closed and to teleport the user to the id supplied
+    /// Map editor wishes to teleport the player to the supplied map
     Warp(MapId),
     /// Map editor wishes to resize the map
-    ResizeMap(u32, u32),
+    Resize(u32, u32),
 }
 
-#[derive(Clone, PartialEq)]
-pub struct MapEditorResponse {
-    tab: MapEditorTab,
-    wants: MapEditorWants,
-}
-
-impl MapEditorResponse {
-    pub fn wants(&self) -> &MapEditorWants {
-        &self.wants
-    }
+pub struct MapEditorUpdate {
+    pub maps: HashMap<MapId, String>,
+    pub width: u32,
+    pub height: u32,
+    pub id: MapId,
+    pub settings: MapSettings,
 }
 
 pub struct MapEditor {
-    tab: MapEditorTab,
+    tab: Tab,
+    wants: Option<Wants>,
 
     // map editor
     layer: MapLayer,
@@ -105,7 +103,8 @@ pub struct MapEditor {
 impl MapEditor {
     pub fn new() -> Self {
         Self {
-            tab: MapEditorTab::Tileset,
+            tab: Tab::Tileset,
+            wants: None,
 
             // map editor
             layer: MapLayer::Ground,
@@ -135,51 +134,64 @@ impl MapEditor {
         }
     }
 
-    pub fn show(&mut self, ui: &mut Ui, assets: &Assets) -> MapEditorResponse {
-        let mut wants = MapEditorWants::Nothing;
+    pub fn show(&mut self, ctx: &egui::Context, assets: &Assets, show: &mut bool) {
+        if *show {
+            Window::new("📝 Map Editor").show(ctx, |ui| self.ui(ui, assets, show));
+        }
+    }
 
+    pub fn update(&mut self, update: MapEditorUpdate) {
+        self.maps = update.maps;
+        self.new_width = update.width;
+        self.new_height = update.height;
+        self.id = update.id;
+        self.selected_id = update.id;
+        self.settings = update.settings;
+    }
+
+    /// The map editor requests a specific thing
+    pub fn wants(&mut self) -> Option<Wants> {
+        self.wants.take()
+    }
+
+    pub fn ui(&mut self, ui: &mut Ui, assets: &Assets, show: &mut bool) {
         menu::bar(ui, |ui| {
             ui.menu_button("File", |ui| {
                 if ui.button("Save").clicked() {
-                    wants = MapEditorWants::Save;
+                    self.wants = Some(Wants::Save);
                     if self.increment_revision {
                         self.settings.revision += 1;
                     }
                     ui.close_menu();
+                    *show = false;
                 }
                 if ui.button("Exit").clicked() {
-                    wants = MapEditorWants::Close;
+                    self.wants = Some(Wants::Close);
                     ui.close_menu();
+                    *show = false;
                 }
             });
+
+            ui.add_space(6.0);
             ui.separator();
 
-            ui.with_layout(Layout::right_to_left(), |ui| {
-                ui.separator();
-                ui.selectable_value(&mut self.tab, MapEditorTab::Tileset, "Tileset");
-                ui.selectable_value(&mut self.tab, MapEditorTab::Zones, "Zones");
-                ui.selectable_value(&mut self.tab, MapEditorTab::Settings, "Settings");
-                ui.selectable_value(&mut self.tab, MapEditorTab::Tools, "Tools");
-            });
+            ui.selectable_value(&mut self.tab, Tab::Tileset, "Tileset");
+            ui.selectable_value(&mut self.tab, Tab::Zones, "Zones");
+            ui.selectable_value(&mut self.tab, Tab::Settings, "Settings");
+            ui.selectable_value(&mut self.tab, Tab::Tools, "Tools");
         });
 
         ui.separator();
 
-        let tab_wants = match self.tab {
-            MapEditorTab::Tileset => self.show_tileset_tab(ui, assets),
-            MapEditorTab::Zones => self.show_zone_tab(ui),
-            MapEditorTab::Settings => self.show_settings_tab(ui, assets),
-            MapEditorTab::Tools => self.show_tools_tab(ui),
+        match self.tab {
+            Tab::Tileset => self.show_tileset_tab(ui, assets),
+            Tab::Zones => self.show_zone_tab(ui),
+            Tab::Settings => self.show_settings_tab(ui, assets),
+            Tab::Tools => self.show_tools_tab(ui),
         };
-
-        if tab_wants != MapEditorWants::Nothing {
-            wants = tab_wants;
-        }
-
-        MapEditorResponse { tab: self.tab, wants }
     }
 
-    fn show_tileset_tab(&mut self, ui: &mut Ui, assets: &Assets) -> MapEditorWants {
+    fn show_tileset_tab(&mut self, ui: &mut Ui, assets: &Assets) {
         let id = ui.make_persistent_id("mapeditor_settings");
         CollapsingState::load_with_default_open(ui.ctx(), id, false)
             .show_header(ui, |ui| {
@@ -231,11 +243,9 @@ impl MapEditor {
             &mut self.tile_picker,
             egui::Vec2::new(TILE_SIZE as f32, TILE_SIZE as f32),
         );
-
-        MapEditorWants::Nothing
     }
 
-    fn show_zone_tab(&mut self, ui: &mut Ui) -> MapEditorWants {
+    fn show_zone_tab(&mut self, ui: &mut Ui) {
         ui.horizontal(|ui| {
             ui.group(|ui| {
                 ui.vertical(|ui| {
@@ -314,11 +324,9 @@ impl MapEditor {
                 });
             });
         });
-
-        MapEditorWants::Nothing
     }
 
-    pub fn show_settings_tab(&mut self, ui: &mut Ui, assets: &Assets) -> MapEditorWants {
+    pub fn show_settings_tab(&mut self, ui: &mut Ui, assets: &Assets) {
         let shift = ui.ctx().input().modifiers.shift;
 
         ui.heading("Map properties");
@@ -409,13 +417,10 @@ impl MapEditor {
         });
 
         ui.add_space(3.0);
-
-        MapEditorWants::Nothing
     }
 
-    pub fn show_tools_tab(&mut self, ui: &mut Ui) -> MapEditorWants {
+    pub fn show_tools_tab(&mut self, ui: &mut Ui) {
         let shift = ui.ctx().input().modifiers.shift;
-        let mut wants = MapEditorWants::Nothing;
 
         ui.heading("Teleport");
         ui.label("Select a map and hit ▶, the map editor will close and you will be teleported to it.");
@@ -444,7 +449,7 @@ impl MapEditor {
                 });
 
             if ui.button("▶").clicked() {
-                wants = MapEditorWants::Warp(self.selected_id);
+                self.wants = Some(Wants::Warp(self.selected_id));
             }
         });
 
@@ -479,36 +484,20 @@ impl MapEditor {
                     ui.label("Hold shift to enable the save button.");
                 });
                 if button.clicked() {
-                    wants = MapEditorWants::ResizeMap(self.new_width, self.new_height);
+                    self.wants = Some(Wants::Resize(self.new_width, self.new_height));
                 }
             });
         });
 
         ui.add_space(6.0);
-        wants
     }
 
-    pub fn tab(&self) -> MapEditorTab {
+    pub fn tab(&self) -> Tab {
         self.tab
     }
 
     pub fn layer(&self) -> MapLayer {
         self.layer
-    }
-
-    pub fn set_maps(&mut self, maps: HashMap<MapId, String>) {
-        self.maps = maps;
-    }
-
-    pub fn set_map_size(&mut self, width: u32, height: u32) {
-        self.new_width = width;
-        self.new_height = height;
-    }
-
-    pub fn set_settings(&mut self, id: MapId, settings: MapSettings) {
-        self.id = id;
-        self.selected_id = id;
-        self.settings = settings;
     }
 
     pub fn tile(&self) -> Tile {

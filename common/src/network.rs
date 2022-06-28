@@ -31,7 +31,7 @@ pub enum ClientMessage {
         direction: Direction,
         velocity: Option<Vector2<f32>>,
     },
-    Message(String),
+    Message(ChatChannel, String),
     RequestMap,
     SaveMap(Box<Map>),
     Warp(MapId, Option<Point2<f32>>),
@@ -50,7 +50,7 @@ pub enum ServerMessage {
         direction: Direction,
         velocity: Option<Vector2<f32>>,
     },
-    Message(ChatMessage),
+    Message(ChatChannel, String),
     ChangeMap(MapId, u32),
     MapData(Box<Map>),
     MapEditor {
@@ -143,6 +143,14 @@ pub struct Player {
     pub position: Point2<f32>,
     pub sprite: u32,
     pub direction: Direction,
+}
+
+#[derive(Copy, Clone, Serialize, Deserialize, PartialEq, Debug)]
+pub enum ChatChannel {
+    Echo,
+    Server,
+    Say,
+    Global,
 }
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Debug)]

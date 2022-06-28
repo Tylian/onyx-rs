@@ -4,7 +4,11 @@ use std::{
 };
 
 use anyhow::Result;
-use common::network::{Map as NetworkMap, MapId, MapLayer, MapSettings, Tile, Zone};
+use common::{
+    network::{Map as NetworkMap, MapId, MapLayer, MapSettings, Tile, Zone},
+    TILE_SIZE,
+};
+use euclid::default::Box2D;
 use ndarray::Array2;
 use serde::{Deserialize, Serialize};
 use strum::IntoEnumIterator;
@@ -93,6 +97,19 @@ impl Map {
         std::fs::write(path, contents)?;
 
         Ok(())
+    }
+
+    pub fn to_box2d(&self) -> Box2D<f32> {
+        use euclid::default::{Point2D, Rect, Size2D};
+
+        Rect::new(
+            Point2D::zero(),
+            Size2D::new(
+                self.width as f32 * TILE_SIZE as f32,
+                self.height as f32 * TILE_SIZE as f32,
+            ),
+        )
+        .to_box2d()
     }
 }
 

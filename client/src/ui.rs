@@ -1,11 +1,14 @@
+mod chat_window;
 mod map_editor;
 
 use egui::{popup_below_widget, Id, Image, Rect, Response, ScrollArea, Sense, TextureHandle, Ui};
-pub use map_editor::*;
 
 use common::SPRITE_SIZE;
 
 use crate::utils::ping_pong;
+
+pub use self::chat_window::*;
+pub use self::map_editor::*;
 
 // TODO multiple tile selections
 pub fn tile_selector(ui: &mut Ui, texture: &TextureHandle, selected: &mut egui::Pos2, snap: egui::Vec2) {

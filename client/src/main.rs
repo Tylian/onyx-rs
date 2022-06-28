@@ -8,7 +8,6 @@ use crate::{assets::Assets, game::game_screen, title::title_screen};
 
 mod assets;
 mod game;
-mod map;
 mod network;
 mod title;
 mod ui;

@@ -261,6 +261,15 @@ impl Map {
         Ok(map.try_into()?)
     }
 
+    pub fn save_cache(&self) -> Result<()> {
+        let map = NetworkMap::from(self.clone());
+        let bytes = bincode::serialize(&map)?;
+        let path = Self::cache_path(self.id);
+        std::fs::write(path, bytes)?;
+
+        Ok(())
+    }
+
     pub fn new(id: MapId, width: u32, height: u32) -> Self {
         let settings = MapSettings::default();
         let mut layers = HashMap::new();

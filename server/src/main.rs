@@ -9,7 +9,7 @@ use std::{
 use anyhow::Result;
 use base64ct::{Base64, Encoding};
 use common::{
-    network::{ChatMessage, ClientId, ClientMessage, Direction, FailJoinReason, MapId, ServerMessage, ZoneData},
+    network::{ChatChannel, ClientId, ClientMessage, Direction, FailJoinReason, MapId, ServerMessage, ZoneData},
     SPRITE_SIZE, TILE_SIZE,
 };
 use data::Player as PlayerData;
@@ -162,7 +162,7 @@ impl GameServer {
                 ServerMessage::PlayerLeft(client_id),
             );
 
-            let goodbye = ServerMessage::Message(ChatMessage::Server(format!("{} has left the game.", &player.name)));
+            let goodbye = ServerMessage::Message(ChatChannel::Server, format!("{} has left the game.", &player.name));
             self.send_exclude(client_id, goodbye);
 
             PlayerData::from(player).save().unwrap();
@@ -241,11 +241,32 @@ impl GameServer {
             CreateAccount { .. } => unreachable!(),
             Login { .. } => unreachable!(),
 
-            Message(text) => {
+            Message(channel, text) => {
                 if let Some(player) = self.players.get(&client_id) {
-                    let full_text = format!("{}: {}", player.name, text);
-                    let packet = ServerMessage::Message(ChatMessage::Say(full_text));
-                    self.send_all(packet);
+                    match channel {
+                        ChatChannel::Echo => log::warn!("Client tried to echo to the server"),
+                        ChatChannel::Server => {
+                            let packet = ServerMessage::Message(ChatChannel::Server, text);
+                            self.send_all(packet);
+                        }
+                        ChatChannel::Say => {
+                            let full_text = format!("{}: {}", player.name, text);
+                            let players = self
+                                .players
+                                .iter()
+                                .filter(|(_, data)| data.map == player.map)
+                                .map(|(&cid, _)| cid)
+                                .collect::<Vec<_>>();
+
+                            let packet = ServerMessage::Message(ChatChannel::Say, full_text);
+                            self.send_list(&players, packet);
+                        }
+                        ChatChannel::Global => {
+                            let full_text = format!("{}: {}", player.name, text);
+                            let packet = ServerMessage::Message(ChatChannel::Global, full_text);
+                            self.send_all(packet);
+                        }
+                    }
                 }
             }
             RequestMap => {
@@ -303,6 +324,7 @@ impl GameServer {
                 self.send_list(&players, packet);
             }
             Warp(map_id, position) => {
+                // note: the requested map possibly doesn't exist
                 self.warp_player(
                     client_id,
                     map_id,
@@ -312,33 +334,39 @@ impl GameServer {
                         ..Default::default()
                     },
                 );
+
+                self.send_map_editor(client_id, map_id);
             }
             MapEditor => {
-                let map_id = self.players.get(&client_id).map(|p| &p.map).unwrap();
-                let maps = self
-                    .maps
-                    .iter()
-                    .map(|(&id, map)| (id, map.settings.name.clone()))
-                    .collect::<HashMap<_, _>>();
-                let map = self.maps.get(map_id).unwrap();
-
-                let id = *map_id;
-                let width = map.width;
-                let height = map.height;
-                let settings = map.settings.clone();
-
-                self.send(
-                    client_id,
-                    ServerMessage::MapEditor {
-                        maps,
-                        id,
-                        width,
-                        height,
-                        settings,
-                    },
-                );
+                let map_id = self.players.get(&client_id).unwrap().map;
+                self.send_map_editor(client_id, map_id);
             }
         }
+    }
+
+    fn send_map_editor(&self, client_id: ClientId, map_id: MapId) {
+        let maps = self
+            .maps
+            .iter()
+            .map(|(&id, map)| (id, map.settings.name.clone()))
+            .collect::<HashMap<_, _>>();
+        let map = self.maps.get(&map_id).unwrap();
+
+        let id = map_id;
+        let width = map.width;
+        let height = map.height;
+        let settings = map.settings.clone();
+
+        self.send(
+            client_id,
+            ServerMessage::MapEditor {
+                maps,
+                id,
+                width,
+                height,
+                settings,
+            },
+        );
     }
 
     fn join_game(&mut self, client_id: ClientId, player: Player) {
@@ -360,13 +388,13 @@ impl GameServer {
         // Send welcome message
         self.send(
             client_id,
-            ServerMessage::Message(ChatMessage::Server("Welcome to Game™!".to_owned())),
+            ServerMessage::Message(ChatChannel::Server, "Welcome to Game™!".to_owned()),
         );
 
         // Send join message
         self.send_exclude(
             client_id,
-            ServerMessage::Message(ChatMessage::Server(format!("{} has joined the game.", &player.name))),
+            ServerMessage::Message(ChatChannel::Server, format!("{} has joined the game.", &player.name)),
         );
     }
 
@@ -462,14 +490,7 @@ impl GameServer {
                 }
 
                 // todo: method on map?
-                let map_box = Rect::new(
-                    Point2D::zero(),
-                    Size2D::new(
-                        map.width as f32 * TILE_SIZE as f32,
-                        map.height as f32 * TILE_SIZE as f32,
-                    ),
-                )
-                .to_box2d();
+                let map_box = map.to_box2d();
 
                 valid &= map_box.contains_box(&sprite);
                 valid &= !map.zones.iter().any(|attrib| {
@@ -517,9 +538,13 @@ impl GameServer {
 
     /// Warps the player to a specific map, sending all the correct packets
     fn warp_player(&mut self, client_id: ClientId, map_id: MapId, params: WarpParams) {
-        println!("{:?}, {:?}, {:?}", client_id, map_id, params);
+        log::debug!("{:?}, {:?}, {:?}", client_id, map_id, params);
         if !self.players.contains_key(&client_id) {
             return;
+        }
+
+        if let Entry::Vacant(e) = self.maps.entry(map_id) {
+            e.insert(create_map(map_id));
         }
 
         // check if we're actually changing maps, or if we're just moving to a new position.
@@ -551,15 +576,14 @@ impl GameServer {
                 self.send(client_id, packet);
             }
 
-            self.send_list(
-                &self
-                    .players
-                    .iter()
-                    .filter(|(_, data)| data.map == map_id)
-                    .map(|(&cid, _)| cid)
-                    .collect::<Vec<_>>(),
-                ServerMessage::PlayerJoined(client_id, self.players.get(&client_id).unwrap().clone().into()),
-            );
+            let players = self
+                .players
+                .iter()
+                .filter(|(_, data)| data.map == map_id)
+                .map(|(&cid, _)| cid)
+                .collect::<Vec<_>>();
+            let player_data = self.players.get(&client_id).unwrap().clone().into();
+            self.send_list(&players, ServerMessage::PlayerJoined(client_id, player_data));
         }
 
         if let Some(player) = self.players.get_mut(&client_id) {
@@ -594,6 +618,13 @@ impl GameServer {
         }
     }
 
+    pub fn maintain(&mut self) {
+        // lol
+    }
+}
+
+/// Network convenience
+impl GameServer {
     pub fn network(&self) -> &NetworkController {
         self.handler.as_ref().unwrap().network()
     }
@@ -628,9 +659,5 @@ impl GameServer {
         for &endpoint in self.peer_map.values() {
             self.network().send(endpoint, &bytes);
         }
-    }
-
-    pub fn maintain(&mut self) {
-        // lol
     }
 }

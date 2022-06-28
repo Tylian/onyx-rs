@@ -1,27 +1,32 @@
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use common::network::{ChatMessage, ClientId, ClientMessage, Direction, MapId, MapLayer, ServerMessage, ZoneData};
-use common::{RUN_SPEED, SPRITE_SIZE, TILE_SIZE, WALK_SPEED};
+use common::{
+    network::{ChatChannel, ClientId, ClientMessage, Direction, MapId, MapLayer, ServerMessage, ZoneData},
+    RUN_SPEED, SPRITE_SIZE, TILE_SIZE, WALK_SPEED,
+};
 use glam::{vec2, IVec2, Vec2};
 use macroquad::{color, prelude::*};
 use message_io::node::StoredNetEvent;
 
-use self::player::{Animation, Player, Tween};
-use crate::network::Network;
+use self::{
+    map::{draw_zone, Map, Zone},
+    player::{Animation, Player, Tween},
+};
 use crate::{
     assets::Assets,
-    map::{draw_zone, Map, Zone},
-    ui::{MapEditor, MapEditorTab, MapEditorWants},
+    network::Network,
+    ui::{ChatWindow, MapEditor, MapEditorUpdate, Tab, Wants},
     utils::draw_text_shadow,
 };
 
-mod player;
+pub mod map;
+pub mod player;
+
 struct UiState {
     map_editor: MapEditor,
     map_editor_shown: bool,
-    chat_message: String,
-    chat_messages: Vec<ChatMessage>,
+    chat_window: ChatWindow,
     last_tile: Option<(MouseButton, IVec2)>,
     drag_start: Option<Vec2>,
     block_pointer: bool,
@@ -31,8 +36,7 @@ struct UiState {
 impl Default for UiState {
     fn default() -> Self {
         Self {
-            chat_message: String::new(),
-            chat_messages: Vec::new(),
+            chat_window: ChatWindow::new(),
             last_tile: None,
             map_editor: MapEditor::new(),
             map_editor_shown: false,
@@ -79,8 +83,8 @@ impl GameState {
         self.time - self.start_time
     }
 
-    fn process_message(&mut self, text: String) {
-        self.network.send(ClientMessage::Message(text));
+    fn process_message(&mut self, channel: ChatChannel, text: String) {
+        self.network.send(ClientMessage::Message(channel, text));
     }
 
     fn update(&mut self) {
@@ -134,171 +138,13 @@ impl GameState {
         }
     }
 
-    fn update_network(&mut self) {
-        while let Some(event) = self.network.try_receive() {
-            match event.network() {
-                StoredNetEvent::Connected(_, _) => (),
-                StoredNetEvent::Accepted(_, _) => unreachable!(),
-                StoredNetEvent::Message(_, bytes) => {
-                    let message = bincode::deserialize(&bytes).unwrap();
-                    self.handle_message(message);
-                }
-                StoredNetEvent::Disconnected(_) => todo!(),
-            }
-        }
-    }
-
-    fn handle_message(&mut self, message: ServerMessage) {
-        use ServerMessage::*;
-
-        log::debug!("{:?}", message);
-        let time = self.time;
-        match message {
-            JoinGame(_) | FailedJoin(_) => unreachable!(),
-
-            PlayerJoined(id, player_data) => {
-                self.players.insert(id, Player::from_network(id, player_data));
-            }
-            PlayerLeft(id) => {
-                self.players.remove(&id);
-            }
-            Message(message) => {
-                self.ui.chat_messages.push(message);
-            }
-            ChangeMap(id, revision) => {
-                self.players.clear();
-                self.ui.map_editor_shown = false;
-
-                let map = Map::from_cache(id);
-                let needs_map = map
-                    .as_ref()
-                    .map(|map| map.settings.revision == revision)
-                    .unwrap_or(true);
-
-                if needs_map {
-                    self.network.send(ClientMessage::RequestMap);
-                } else {
-                    self.map = map.unwrap();
-                }
-            }
-            PlayerMove {
-                client_id,
-                position,
-                direction,
-                velocity,
-            } => {
-                if let Some(player) = self.players.get_mut(&client_id) {
-                    player.position = position.into();
-                    player.direction = direction;
-                    if let Some(velocity) = velocity {
-                        let velocity = Vec2::from(velocity);
-                        player.animation = Animation::Walking {
-                            start: time,
-                            speed: velocity.length() as f64,
-                        };
-                        player.tween = Some(Tween {
-                            velocity,
-                            last_update: time,
-                        });
-                    } else {
-                        player.animation = Animation::Standing;
-                        player.tween = None;
-                    }
-                }
-            }
-            MapData(remote) => {
-                let map = Map::try_from(*remote).unwrap();
-                self.change_map(map);
-            }
-            MapEditor {
-                id,
-                width,
-                height,
-                settings,
-                maps,
-            } => {
-                self.ui.map_editor.set_maps(maps);
-                self.ui.map_editor.set_map_size(width, height);
-                self.ui.map_editor.set_settings(id, settings);
-                self.ui.map_editor_shown = true;
-            }
-        }
-    }
-
     fn change_map(&mut self, map: Map) {
         self.map = map;
         self.assets.toggle_music(self.map.settings.music.as_deref());
         self.assets.set_tileset(&self.map.settings.tileset).unwrap();
-    }
-
-    fn chat_window(&mut self, ctx: &egui::Context) {
-        use egui::*;
-        use egui_extras::{Size, StripBuilder};
-
-        let mut text: Option<Response> = None;
-        let mut button: Option<Response> = None;
-
-        let chat_window = Window::new("💬 Chat")
-            .resizable(true)
-            .default_pos(pos2(7., screen_height() - 198.)) // idfk lmao
-            .default_size([367., 147.])
-            .min_height(125.);
-
-        // 7 522 386 708
-        chat_window.show(ctx, |ui| {
-            let bottom_height = ui.spacing().interact_size.y;
-            StripBuilder::new(ui)
-                .size(Size::remainder().at_least(100.))
-                .size(Size::exact(6.))
-                .size(Size::exact(bottom_height))
-                .vertical(|mut strip| {
-                    strip.cell(|ui| {
-                        ScrollArea::vertical()
-                            .auto_shrink([false; 2])
-                            .stick_to_bottom()
-                            .show(ui, |ui| {
-                                for message in &self.ui.chat_messages {
-                                    match message {
-                                        ChatMessage::Server(text) => {
-                                            ui.colored_label(Color32::GOLD, format!("[Server] {}", text));
-                                        }
-                                        ChatMessage::Say(text) => {
-                                            ui.colored_label(Color32::WHITE, format!("[Say] {}", text));
-                                        }
-                                    };
-                                }
-                            });
-                    });
-                    strip.cell(|ui| {
-                        ui.separator();
-                    });
-                    strip.strip(|builder| {
-                        builder
-                            .size(Size::exact(40.))
-                            .size(Size::remainder())
-                            .size(Size::exact(40.))
-                            .horizontal(|mut strip| {
-                                strip.cell(|ui| {
-                                    ui.colored_label(Color32::WHITE, "Say:");
-                                });
-                                strip.cell(|ui| {
-                                    text = Some(ui.text_edit_singleline(&mut self.ui.chat_message));
-                                });
-                                strip.cell(|ui| {
-                                    button = Some(ui.button("Send"));
-                                });
-                            });
-                    });
-                });
-
-            if let Some((text, button)) = text.zip(button) {
-                if (text.lost_focus() && ui.input().key_pressed(Key::Enter)) || button.clicked() {
-                    let message = std::mem::take(&mut self.ui.chat_message);
-                    self.process_message(message);
-                    text.request_focus();
-                }
-            }
-        });
+        if let Err(e) = self.map.save_cache() {
+            log::error!("Couldn't save map cache: {}", e);
+        }
     }
 
     fn update_ui(&mut self, ctx: &egui::Context) {
@@ -320,35 +166,40 @@ impl GameState {
             Window::new("🖊 Style").vscroll(true).show(ctx, |ui| ctx.style_ui(ui));
         }
 
-        self.chat_window(ctx);
-
-        if self.ui.map_editor_shown {
-            Window::new("📝 Map Editor").show(ctx, |ui| {
-                match self.ui.map_editor.show(ui, &self.assets).wants() {
-                    MapEditorWants::Nothing => (), // yolo
-                    MapEditorWants::Save => {
-                        let (id, settings) = self.ui.map_editor.map_settings();
-                        self.map.id = id;
-                        self.map.settings = settings.clone();
-
-                        let data = Box::new(self.map.clone().into());
-                        self.network.send(ClientMessage::SaveMap(data));
-                        self.ui.map_editor_shown = false;
-                    }
-                    MapEditorWants::Close => {
-                        self.network.send(ClientMessage::RequestMap);
-                        self.ui.map_editor_shown = false;
-                    }
-                    MapEditorWants::ResizeMap(width, height) => {
-                        self.map = self.map.resize(*width, *height);
-                    }
-                    MapEditorWants::Warp(id) => {
-                        self.network.send(ClientMessage::Warp(*id, None));
-                        self.ui.map_editor_shown = false;
-                    }
-                }
-            });
+        self.ui.chat_window.show(ctx);
+        if let Some((channel, message)) = self.ui.chat_window.message() {
+            self.process_message(channel, message);
         }
+
+        self.ui
+            .map_editor
+            .show(ctx, &self.assets, &mut self.ui.map_editor_shown);
+        match self.ui.map_editor.wants() {
+            None => (),
+            Some(Wants::Save) => {
+                let (id, settings) = self.ui.map_editor.map_settings();
+                self.map.id = id;
+                self.map.settings = settings.clone();
+
+                let data = Box::new(self.map.clone().into());
+                self.network.send(ClientMessage::SaveMap(data));
+            }
+            Some(Wants::Close) => {
+                self.network.send(ClientMessage::RequestMap);
+            }
+            Some(Wants::Resize(width, height)) => {
+                self.map = self.map.resize(width, height);
+            }
+            Some(Wants::Warp(id)) => {
+                self.network.send(ClientMessage::Warp(id, None));
+            }
+        }
+
+        /*if self.ui.map_editor_shown {
+            Window::new("📝 Map Editor").show(ctx, |ui| {
+
+            });
+        }*/
 
         /*egui::Window::new("📝 Memory")
         .resizable(false)
@@ -419,7 +270,7 @@ impl GameState {
             // Map editor
             if self.ui.map_editor_shown {
                 match self.ui.map_editor.tab() {
-                    MapEditorTab::Tileset => {
+                    Tab::Tileset => {
                         let mouse_button = if is_mouse_button_down(MouseButton::Left) {
                             Some(MouseButton::Left)
                         } else if is_mouse_button_down(MouseButton::Right) {
@@ -453,7 +304,7 @@ impl GameState {
                             }
                         }
                     }
-                    MapEditorTab::Zones => {
+                    Tab::Zones => {
                         let mouse_position = self.camera.screen_to_world(mouse_position().into());
                         if is_mouse_button_pressed(MouseButton::Right) {
                             for (i, attrib) in self.map.zones.iter().enumerate().rev() {
@@ -480,7 +331,7 @@ impl GameState {
                             self.ui.drag_start = Some(mouse_position);
                         };
                     }
-                    MapEditorTab::Settings | MapEditorTab::Tools => (),
+                    Tab::Settings | Tab::Tools => (),
                 }
             }
         }
@@ -554,6 +405,112 @@ impl GameState {
                 ..Default::default()
             },
         );
+    }
+}
+
+/// Networking
+impl GameState {
+    fn update_network(&mut self) {
+        while let Some(event) = self.network.try_receive() {
+            match event.network() {
+                StoredNetEvent::Connected(_, _) => (),
+                StoredNetEvent::Accepted(_, _) => unreachable!(),
+                StoredNetEvent::Message(_, bytes) => {
+                    let message = bincode::deserialize(&bytes).unwrap();
+                    self.handle_message(message);
+                }
+                StoredNetEvent::Disconnected(_) => todo!(),
+            }
+        }
+    }
+
+    fn handle_message(&mut self, message: ServerMessage) {
+        use ServerMessage::*;
+
+        match &message {
+            MapData(_) => (),
+            message => {
+                log::debug!("{:?}", message);
+            }
+        }
+
+        let time = self.time;
+        match message {
+            JoinGame(_) | FailedJoin(_) => unreachable!(),
+
+            PlayerJoined(id, player_data) => {
+                self.players.insert(id, Player::from_network(id, player_data));
+            }
+            PlayerLeft(id) => {
+                self.players.remove(&id);
+            }
+            Message(channel, message) => {
+                self.ui.chat_window.insert(channel, message);
+            }
+            ChangeMap(id, revision) => {
+                self.players.clear();
+                self.ui.map_editor_shown = false;
+
+                let map = Map::from_cache(id);
+                let needs_map = map
+                    .as_ref()
+                    .map(|map| map.settings.revision == revision)
+                    .unwrap_or(true);
+
+                log::debug!("{:?} {}", map.as_ref().map(|map| map.settings.revision), revision);
+
+                if needs_map {
+                    self.network.send(ClientMessage::RequestMap);
+                } else {
+                    self.change_map(map.unwrap());
+                }
+            }
+            PlayerMove {
+                client_id,
+                position,
+                direction,
+                velocity,
+            } => {
+                if let Some(player) = self.players.get_mut(&client_id) {
+                    player.position = position.into();
+                    player.direction = direction;
+                    if let Some(velocity) = velocity {
+                        let velocity = Vec2::from(velocity);
+                        player.animation = Animation::Walking {
+                            start: time,
+                            speed: velocity.length() as f64,
+                        };
+                        player.tween = Some(Tween {
+                            velocity,
+                            last_update: time,
+                        });
+                    } else {
+                        player.animation = Animation::Standing;
+                        player.tween = None;
+                    }
+                }
+            }
+            MapData(remote) => {
+                let map = Map::try_from(*remote).unwrap();
+                self.change_map(map);
+            }
+            MapEditor {
+                id,
+                width,
+                height,
+                settings,
+                maps,
+            } => {
+                self.ui.map_editor.update(MapEditorUpdate {
+                    maps,
+                    width,
+                    height,
+                    id,
+                    settings,
+                });
+                self.ui.map_editor_shown = true;
+            }
+        }
     }
 }
 
