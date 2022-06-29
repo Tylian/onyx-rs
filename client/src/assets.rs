@@ -95,7 +95,7 @@ impl Assets {
             let entry = entry?;
             let path = entry.path();
             if path.is_file() && path.extension().and_then(OsStr::to_str) == Some("png") {
-                debug!("Loading tileset {}", path.display());
+                log::debug!("Loading tileset {}", path.display());
                 let image = load_image(&path.to_string_lossy()).await?;
                 let name = path.file_name().unwrap().to_string_lossy();
                 tilesets.insert(name.to_string(), image);

@@ -35,7 +35,7 @@ async fn main() {
 
     #[cfg(not(debug_assertions))]
     env_logger::builder()
-        .filter_level(LevelFilter::Warn)
+        .filter_level(LevelFilter::Info)
         .init();
 
     let assets = Assets::load().await.expect("Could not load assets");

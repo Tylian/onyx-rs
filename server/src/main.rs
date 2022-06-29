@@ -34,7 +34,7 @@ fn main() -> anyhow::Result<()> {
 
     #[cfg(not(debug_assertions))]
     env_logger::builder()
-        .filter_level(LevelFilter::Warn)
+        .filter_level(LevelFilter::Info)
         .init();
 
     let game_server = GameServer::new()?;
