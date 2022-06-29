@@ -316,7 +316,7 @@ impl GameServer {
                 };
 
                 let map_id = player.map;
-                self.send_map(map_id, packet);
+                self.send_map_except(map_id, client_id, packet);
             }
             Warp(map_id, position) => {
                 // note: the requested map possibly doesn't exist
