@@ -64,8 +64,8 @@ impl Map {
     }
 
     fn load_path(path: impl AsRef<Path>) -> Result<Self> {
-        let contents = std::fs::read(path)?;
-        let map = bincode::deserialize(&contents)?;
+        let file = std::fs::File::open(path)?;
+        let map = rmp_serde::from_read(file)?;
 
         Ok(map)
     }
@@ -93,7 +93,7 @@ impl Map {
         let path = Self::path(self.id);
 
         let map = self.clone();
-        let contents = bincode::serialize(&map)?;
+        let contents = rmp_serde::to_vec_named(&map)?;
         std::fs::write(path, contents)?;
 
         Ok(())

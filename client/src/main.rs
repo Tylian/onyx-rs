@@ -2,6 +2,8 @@
 
 use std::rc::Rc;
 
+use env_logger::WriteStyle;
+use log::LevelFilter;
 use macroquad::window::Conf;
 
 use crate::{assets::Assets, game::game_screen, title::title_screen};
@@ -12,6 +14,7 @@ mod network;
 mod title;
 mod ui;
 mod utils;
+mod data;
 
 fn window_conf() -> Conf {
     Conf {
@@ -25,10 +28,15 @@ fn window_conf() -> Conf {
 #[macroquad::main(window_conf)]
 async fn main() {
     #[cfg(debug_assertions)]
-    simple_logger::init_with_level(log::Level::Debug).unwrap();
+    env_logger::builder()
+        .filter_level(LevelFilter::Debug)
+        .write_style(WriteStyle::Always)
+        .init();
 
     #[cfg(not(debug_assertions))]
-    simple_logger::init_with_level(log::Level::Warn).unwrap();
+    env_logger::builder()
+        .filter_level(LevelFilter::Warn)
+        .init();
 
     let assets = Assets::load().await.expect("Could not load assets");
     let assets = Rc::new(assets);

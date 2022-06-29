@@ -183,9 +183,7 @@ impl AttributeDataEx for ZoneData {
     fn text(&self) -> String {
         match self {
             ZoneData::Blocked => String::from("Blocked"),
-            ZoneData::Warp(map_id, position, _direction) => {
-                format!("Warp to\n{} ({},{})", map_id.0, position.x, position.y)
-            }
+            ZoneData::Warp(_, _, _) => String::from("Warp")
         }
     }
     fn color(&self) -> Color {
@@ -255,15 +253,15 @@ impl Map {
 
     pub fn from_cache(id: MapId) -> Result<Self> {
         let path = Self::cache_path(id);
-        let bytes = std::fs::read(path)?;
-        let map: NetworkMap = bincode::deserialize(&bytes)?;
+        let file = std::fs::File::open(path)?;
+        let map: NetworkMap = rmp_serde::from_read(file)?;
 
         Ok(map.try_into()?)
     }
 
     pub fn save_cache(&self) -> Result<()> {
         let map = NetworkMap::from(self.clone());
-        let bytes = bincode::serialize(&map)?;
+        let bytes = rmp_serde::to_vec_named(&map)?;
         let path = Self::cache_path(self.id);
         std::fs::write(path, bytes)?;
 

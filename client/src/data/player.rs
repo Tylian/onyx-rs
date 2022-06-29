@@ -1,6 +1,6 @@
 use common::{
     network::{ClientId, Direction, Player as NetworkPlayer, PlayerFlags},
-    TILE_SIZE,
+    TILE_SIZE, SPRITE_SIZE
 };
 use macroquad::prelude::*;
 
@@ -8,8 +8,6 @@ use crate::{
     assets::Assets,
     utils::{draw_text_outline, ping_pong},
 };
-
-use super::SPRITE_SIZE;
 
 pub enum Animation {
     Standing,

@@ -28,17 +28,5 @@ impl From<Player> for NetworkPlayer {
 }
 
 impl Player {
-    pub fn new(username: &str, password: &str, name: &str, map: MapId, position: Point2D<f32>) -> Self {
-        Self {
-            username: username.into(),
-            password: password.into(),
-            name: name.into(),
-            sprite: 0,
-            position,
-            direction: Direction::South,
-            map,
-            velocity: None,
-            flags: PlayerFlags::default(),
-        }
-    }
+    
 }

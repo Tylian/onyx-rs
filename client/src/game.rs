@@ -9,19 +9,13 @@ use glam::{vec2, IVec2, Vec2};
 use macroquad::{color, prelude::*};
 use message_io::node::StoredNetEvent;
 
-use self::{
-    map::{draw_zone, Map, Zone},
-    player::{Animation, Player},
-};
 use crate::{
+    data::{draw_zone, Map, Zone, Animation, Player},
     assets::Assets,
     network::Network,
     ui::{ChatWindow, MapEditor, MapEditorUpdate, Tab, Wants},
     utils::draw_text_shadow,
 };
-
-pub mod map;
-pub mod player;
 
 struct UiState {
     map_editor: MapEditor,
@@ -84,7 +78,14 @@ impl GameState {
     }
 
     fn process_message(&mut self, channel: ChatChannel, text: String) {
-        self.network.send(ClientMessage::Message(channel, text));
+        if text.starts_with("/pos") {
+            let position = self.players.get(&self.local_player).unwrap().position;
+            let message = format!("Your position is x: {} y: {}", position.x, position.y);
+            self.ui.chat_window.insert(ChatChannel::Echo, message)
+        } else {
+            self.network.send(ClientMessage::Message(channel, text));
+        }
+        
     }
 
     fn update(&mut self) {
@@ -105,16 +106,18 @@ impl GameState {
 
     fn update_players(&mut self) {
         let player_boxes = self.players.iter()
-            .filter(|(cid, _player)| self.local_player != **cid)
-            .map(|(_cid, player)| Rect::new(
-                player.position.x,
-                player.position.y + SPRITE_SIZE as f32 / 2.0,
-                SPRITE_SIZE as f32,
-                SPRITE_SIZE as f32 / 2.0,
+            .map(|(cid, player)| (
+                *cid,
+                Rect::new(
+                    player.position.x,
+                    player.position.y + SPRITE_SIZE as f32 / 2.0,
+                    SPRITE_SIZE as f32,
+                    SPRITE_SIZE as f32 / 2.0,
+                )
             ))
             .collect::<Vec<_>>();
 
-        for player in self.players.values_mut() {
+        for (client_id, player) in self.players.iter_mut() {
             if let Some(&mut velocity) = player.velocity.as_mut() {
                 let offset = velocity * (self.time - player.last_update) as f32;
                 let new_position = player.position + offset;
@@ -135,7 +138,8 @@ impl GameState {
 
                 if !player.flags.in_map_editor {
                     valid &= !player_boxes.iter()
-                        .any(|b| b.overlaps(&sprite_rect));
+                        .filter(|(cid, _b)| cid != client_id)
+                        .any(|(_, b)| b.overlaps(&sprite_rect));
 
                     valid &= !self.map.zones.iter()
                         .filter(|zone| zone.data == ZoneData::Blocked)
@@ -164,6 +168,8 @@ impl GameState {
 
     fn update_ui(&mut self, ctx: &egui::Context) {
         use egui::*;
+        
+        let mouse_position = self.camera.screen_to_world(mouse_position().into());
 
         // Show egui debugging
         #[cfg(debug_assertions)]
@@ -216,17 +222,23 @@ impl GameState {
             }
         }
 
-        /*if self.ui.map_editor_shown {
-            Window::new("📝 Map Editor").show(ctx, |ui| {
-
-            });
-        }*/
-
-        /*egui::Window::new("📝 Memory")
-        .resizable(false)
-        .show(&egui_ctx, |ui| {
-            egui_ctx.memory_ui(ui);
-        });*/
+        if self.ui.map_editor_shown {
+            for zone in &self.map.zones {
+                if zone.position.contains(mouse_position) {
+                    if let ZoneData::Warp(map_id, position, direction) = zone.data {
+                        egui::show_tooltip_at_pointer(ctx, egui::Id::new("zone_tooltip"), |ui| {
+                            ui.label(format!("Warp to: map #{}", map_id.0));
+                            ui.label(format!("x: {} y: {}", position.x, position.y));
+                            if let Some(direction) = direction {
+                                ui.label(format!("Stops movement, faces {}", direction));
+                            } else {
+                                ui.label("Keeps movement");
+                            }
+                        });
+                    }
+                }
+            }
+        }
     }
 
     fn update_input(&mut self) {
@@ -440,7 +452,7 @@ impl GameState {
                 StoredNetEvent::Connected(_, _) => (),
                 StoredNetEvent::Accepted(_, _) => unreachable!(),
                 StoredNetEvent::Message(_, bytes) => {
-                    let message = bincode::deserialize(&bytes).unwrap();
+                    let message = rmp_serde::from_slice(&bytes).unwrap();
                     self.handle_message(message);
                 }
                 StoredNetEvent::Disconnected(_) => todo!(),

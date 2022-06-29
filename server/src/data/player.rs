@@ -1,9 +1,8 @@
 use std::path::PathBuf;
 
-use crate::player::Player as PlayerState;
-use anyhow::Result;
-use common::network::{Direction, MapId, PlayerFlags};
-use euclid::default::Point2D;
+use anyhow::{Result, Context};
+use common::network::{Direction, MapId, PlayerFlags, Player as NetworkPlayer};
+use euclid::default::{Point2D, Vector2D};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -14,7 +13,11 @@ pub struct Player {
     pub sprite: u32,
     pub position: Point2D<f32>,
     pub direction: Direction,
+    #[serde(skip)]
+    pub velocity: Option<Vector2D<f32>>,
     pub map: MapId,
+
+    #[serde(skip)]
     pub flags: PlayerFlags
 }
 
@@ -29,36 +32,19 @@ impl Default for Player {
             direction: Direction::South,
             map: MapId::start(),
             flags: PlayerFlags::default(),
+            velocity: Default::default(),
         }
     }
 }
 
-impl From<Player> for PlayerState {
+impl From<Player> for NetworkPlayer {
     fn from(other: Player) -> Self {
         Self {
-            username: other.username,
-            password: other.password,
             name: other.name,
             sprite: other.sprite,
-            position: other.position,
+            velocity: other.velocity.map(Into::into),
+            position: other.position.into(),
             direction: other.direction,
-            velocity: None,
-            map: other.map,
-            flags: other.flags
-        }
-    }
-}
-
-impl From<PlayerState> for Player {
-    fn from(other: PlayerState) -> Self {
-        Self {
-            username: other.username,
-            password: other.password,
-            name: other.name,
-            sprite: other.sprite,
-            position: other.position,
-            direction: other.direction,
-            map: other.map,
             flags: other.flags,
         }
     }
@@ -74,8 +60,8 @@ impl Player {
     pub fn load(name: &str) -> Result<Self> {
         let path = Self::path(name);
 
-        let contents = std::fs::read_to_string(path)?;
-        let player = toml::from_str(&contents)?;
+        let contents = std::fs::read_to_string(path).context("Read")?;
+        let player = toml::from_str(&contents).context("Parse")?;
 
         Ok(player)
     }
@@ -87,5 +73,21 @@ impl Player {
         std::fs::write(path, contents)?;
 
         Ok(())
+    }
+}
+
+impl Player {
+    pub fn new(username: &str, password: &str, name: &str, map: MapId, position: Point2D<f32>) -> Self {
+        Self {
+            username: username.into(),
+            password: password.into(),
+            name: name.into(),
+            sprite: 0,
+            position,
+            direction: Direction::South,
+            map,
+            velocity: None,
+            flags: PlayerFlags::default(),
+        }
     }
 }

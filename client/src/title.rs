@@ -180,7 +180,9 @@ pub async fn title_screen(assets: Rc<Assets>) -> (ClientId, Network) {
                 }
                 StoredNetEvent::Accepted(_, _) => unreachable!(),
                 StoredNetEvent::Message(_, bytes) => {
-                    let message = bincode::deserialize(&bytes).unwrap();
+                    let message = rmp_serde::from_slice(&bytes).unwrap();
+                    log::debug!("{message:?}");
+
                     match message {
                         ServerMessage::JoinGame(client_id) => {
                             let settings = Settings {

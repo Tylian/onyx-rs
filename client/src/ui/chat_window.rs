@@ -14,7 +14,7 @@ pub struct ChatWindow {
 
 fn channel_info(channel: ChatChannel) -> (Color32, &'static str) {
     match channel {
-        ChatChannel::Echo => (Color32::WHITE, "Echo"),
+        ChatChannel::Echo => (Color32::LIGHT_GRAY, "Echo"),
         ChatChannel::Server => (Color32::GOLD, "Server"),
         ChatChannel::Say => (Color32::WHITE, "Say"),
         ChatChannel::Global => (Color32::from_rgb(0x75, 0x6d, 0xd1), "Global"),

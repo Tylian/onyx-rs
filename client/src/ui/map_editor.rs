@@ -9,7 +9,7 @@ use egui::{
 };
 use strum::IntoEnumIterator;
 
-use crate::{assets::Assets, game::map::Tile};
+use crate::{assets::Assets, data::Tile};
 
 use super::tile_selector;
 

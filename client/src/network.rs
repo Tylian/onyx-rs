@@ -33,7 +33,7 @@ impl Network {
     }
 
     pub fn send(&self, message: ClientMessage) {
-        let bytes = bincode::serialize(&message).unwrap();
+        let bytes = rmp_serde::to_vec(&message).unwrap();
         self.handler.network().send(self.endpoint, &bytes);
     }
 }

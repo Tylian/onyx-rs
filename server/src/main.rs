@@ -13,25 +13,29 @@ use common::{
     network::{ChatChannel, ClientId, ClientMessage, Direction, FailJoinReason, MapId, ServerMessage, ZoneData},
     SPRITE_SIZE,
 };
-use data::Player as PlayerData;
-use data::{Config, Map};
+use env_logger::WriteStyle;
 use euclid::default::{Point2D, Size2D, Vector2D, Box2D};
+use log::LevelFilter;
 use message_io::{
     network::{Endpoint, NetworkController, Transport},
     node::{self, NodeHandler, StoredNetEvent},
 };
-use player::Player;
 use sha2::{Digest, Sha256};
 use rand::prelude::*;
 
-use crate::data::NameCache;
+use crate::data::{NameCache, Player, Config, Map};
 
 fn main() -> anyhow::Result<()> {
     #[cfg(debug_assertions)]
-    simple_logger::init_with_level(log::Level::Debug).unwrap();
+    env_logger::builder()
+        .filter_level(LevelFilter::Debug)
+        .write_style(WriteStyle::Always)
+        .init();
 
     #[cfg(not(debug_assertions))]
-    simple_logger::init_with_level(log::Level::Warn).unwrap();
+    env_logger::builder()
+        .filter_level(LevelFilter::Warn)
+        .init();
 
     let game_server = GameServer::new()?;
     game_server.run();
@@ -118,7 +122,7 @@ impl GameServer {
                         );
                     }
                     StoredNetEvent::Message(endpoint, bytes) => {
-                        let message = bincode::deserialize(&bytes).unwrap();
+                        let message = rmp_serde::from_slice(&bytes).unwrap();
                         let client_id = peer_map
                             .get(&endpoint)
                             .expect("receiving from an endpoint that doesn't have an id??");
@@ -163,7 +167,7 @@ impl GameServer {
             let goodbye = ServerMessage::Message(ChatChannel::Server, format!("{} has left the game.", &player.name));
             self.send_exclude(client_id, goodbye);
 
-            PlayerData::from(player).save().unwrap();
+            player.save().unwrap();
         }
     }
 
@@ -189,7 +193,7 @@ impl GameServer {
             } => {
                 let mut name_cache = NameCache::load().unwrap();
 
-                if PlayerData::path(&username).exists() {
+                if Player::path(&username).exists() {
                     self.send(client_id, ServerMessage::FailedJoin(FailJoinReason::UsernameTaken));
                 }
 
@@ -203,7 +207,7 @@ impl GameServer {
                 let hash = Sha256::digest(password);
                 let password = Base64::encode_string(&hash);
 
-                let player = PlayerData {
+                let player = Player {
                     username,
                     password,
                     name,
@@ -214,19 +218,13 @@ impl GameServer {
 
                 player.save().unwrap();
 
-                self.join_game(client_id, player.into());
+                self.join_game(client_id, player);
             }
             Login { username, password } => {
                 let incorrect = ServerMessage::FailedJoin(FailJoinReason::LoginIncorrect);
 
-                if let Ok(player) = PlayerData::load(&username) {
-                    let hash = Sha256::digest(password);
-                    let password = Base64::encode_string(&hash);
-                    if player.password == password {
-                        self.join_game(client_id, player.into());
-                    } else {
-                        self.send(client_id, incorrect);
-                    }
+                if let Some(player) = Self::check_password(&username, &password) {
+                    self.join_game(client_id, player);
                 } else {
                     self.send(client_id, incorrect);
                 }
@@ -235,6 +233,18 @@ impl GameServer {
                 log::error!("Client sent a packet when it's not connected");
             }
         }
+    }
+
+    fn check_password(username: &str, password: &str) -> Option<Player> {
+        if let Ok(player) = Player::load(username) {
+            let hash = Sha256::digest(password);
+            let password = Base64::encode_string(&hash);
+            if player.password == password {
+                return Some(player)
+            } 
+        }
+
+        None
     }
 
     fn handle_message(&mut self, client_id: ClientId, message: ClientMessage) {
@@ -576,13 +586,13 @@ impl GameServer {
 
     pub fn send(&self, client_id: ClientId, message: ServerMessage) {
         if let Some(&endpoint) = self.peer_map.get(&client_id) {
-            let bytes = bincode::serialize(&message).unwrap();
+            let bytes = rmp_serde::to_vec(&message).unwrap();
             self.network().send(endpoint, &bytes);
         }
     }
 
     pub fn send_exclude(&self, exclude: ClientId, message: ServerMessage) {
-        let bytes = bincode::serialize(&message).unwrap();
+        let bytes = rmp_serde::to_vec(&message).unwrap();
         for (&cid, &endpoint) in self.peer_map.iter() {
             if cid != exclude {
                 self.network().send(endpoint, &bytes);
@@ -591,7 +601,7 @@ impl GameServer {
     }
 
     pub fn send_list(&self, client_list: &[ClientId], message: ServerMessage) {
-        let bytes = bincode::serialize(&message).unwrap();
+        let bytes = rmp_serde::to_vec(&message).unwrap();
         for client_id in client_list.iter() {
             if let Some(&endpoint) = self.peer_map.get(client_id) {
                 self.network().send(endpoint, &bytes);
@@ -600,7 +610,7 @@ impl GameServer {
     }
 
     pub fn send_map(&self, map_id: MapId, message: ServerMessage) {
-        let bytes = bincode::serialize(&message).unwrap();
+        let bytes = rmp_serde::to_vec(&message).unwrap();
         for (client_id, player) in self.players.iter() {
             if player.map == map_id {
                 if let Some(&endpoint) = self.peer_map.get(client_id) {
@@ -611,7 +621,7 @@ impl GameServer {
     }
 
     pub fn send_map_except(&self, map_id: MapId, exclude_id: ClientId, message: ServerMessage) {
-        let bytes = bincode::serialize(&message).unwrap();
+        let bytes = rmp_serde::to_vec(&message).unwrap();
         for (client_id, player) in self.players.iter() {
             if player.map == map_id && *client_id != exclude_id {
                 if let Some(&endpoint) = self.peer_map.get(client_id) {
@@ -622,7 +632,7 @@ impl GameServer {
     }
 
     pub fn send_all(&self, message: ServerMessage) {
-        let bytes = bincode::serialize(&message).unwrap();
+        let bytes = rmp_serde::to_vec(&message).unwrap();
         for &endpoint in self.peer_map.values() {
             self.network().send(endpoint, &bytes);
         }
