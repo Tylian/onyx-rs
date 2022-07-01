@@ -24,15 +24,15 @@ pub struct Player {
 impl Default for Player {
     fn default() -> Self {
         Self {
-            username: Default::default(),
-            password: Default::default(),
-            name: Default::default(),
-            sprite: Default::default(),
-            position: Default::default(),
+            username: String::new(),
+            password: String::new(),
+            name: String::new(),
+            sprite: 0,
+            position: Point2D::new(0.0, 0.0),
             direction: Direction::South,
             map: MapId::start(),
             flags: PlayerFlags::default(),
-            velocity: Default::default(),
+            velocity: None,
         }
     }
 }

@@ -6,13 +6,13 @@ use env_logger::WriteStyle;
 use log::LevelFilter;
 use macroquad::window::Conf;
 
-use crate::{assets::Assets, game::game_screen, title::title_screen};
+use crate::assets::Assets;
 
 mod assets;
 mod data;
-mod game;
+mod game_state;
 mod network;
-mod title;
+mod title_state;
 mod ui;
 mod utils;
 
@@ -39,6 +39,6 @@ async fn main() {
     let assets = Assets::load().await.expect("Could not load assets");
     let assets = Rc::new(assets);
 
-    let (client_id, network) = title_screen(Rc::clone(&assets)).await;
-    game_screen(network, client_id, Rc::clone(&assets)).await;
+    let (client_id, network) = title_state::run(Rc::clone(&assets)).await;
+    game_state::run(network, client_id, Rc::clone(&assets)).await;
 }

@@ -103,13 +103,13 @@ impl Assets {
         }
 
         if !tilesets.contains_key("default.png") {
-            Err(anyhow!(
+            return Err(anyhow!(
                 "the file \"{}\" does not exist, but it is required to exist",
                 Self::asset_path("tilesets/default.png").display()
             ))
-        } else {
-            Ok(tilesets)
         }
+        
+        Ok(tilesets)
     }
 
     pub fn tileset(&self) -> Ref<'_, DualTexture> {
@@ -142,7 +142,7 @@ impl Assets {
             let path = entry.path();
             if path.is_file() {
                 let name = path.file_name().unwrap().to_string_lossy();
-                music.push(name.to_string())
+                music.push(name.to_string());
             }
         }
 

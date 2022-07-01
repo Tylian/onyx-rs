@@ -13,7 +13,7 @@ use crate::{
     assets::Assets,
     data::{draw_zone, Animation, Map, Player, Zone},
     network::Network,
-    ui::{ChatWindow, MapEditor, MapEditorUpdate, Tab, Wants},
+    ui::{ChatWindow, MapEditor, Tab, Wants},
     utils::draw_text_shadow,
 };
 
@@ -41,7 +41,7 @@ impl Default for UiState {
     }
 }
 
-struct GameState {
+struct State {
     assets: Rc<Assets>,
     network: Network,
     players: HashMap<ClientId, Player>,
@@ -55,16 +55,16 @@ struct GameState {
     last_movement: Option<(Direction, f64)>,
 }
 
-impl GameState {
+impl State {
     fn new(network: Network, client_id: ClientId, assets: Rc<Assets>) -> Self {
         Self {
             assets,
             network,
-            players: Default::default(),
+            players: HashMap::default(),
             local_player: client_id,
             map: Map::new(MapId(0), 20, 15),
-            ui: Default::default(),
-            last_movement: Default::default(),
+            ui: UiState::default(),
+            last_movement: None,
             start_time: get_time(),
             time: get_time(),
             clip_rect: Rect::new(0.0, 0.0, screen_width(), screen_height()),
@@ -81,9 +81,9 @@ impl GameState {
         if text.starts_with("/pos") {
             let position = self.players.get(&self.local_player).unwrap().position;
             let message = format!("Your position is x: {} y: {}", position.x, position.y);
-            self.ui.chat_window.insert(ChatChannel::Echo, message)
+            self.ui.chat_window.insert(ChatChannel::Echo, message);
         } else {
-            self.network.send(ClientMessage::Message(channel, text));
+            self.network.send(&ClientMessage::Message(channel, text));
         }
     }
 
@@ -120,7 +120,7 @@ impl GameState {
             })
             .collect::<Vec<_>>();
 
-        for (client_id, player) in self.players.iter_mut() {
+        for (client_id, player) in &mut self.players {
             if let Some(&mut velocity) = player.velocity.as_mut() {
                 let offset = velocity * (self.time - player.last_update) as f32;
                 let new_position = player.position + offset;
@@ -174,7 +174,7 @@ impl GameState {
     }
 
     fn update_ui(&mut self, ctx: &egui::Context) {
-        use egui::*;
+        use egui::Window;
 
         let mouse_position = self.camera.screen_to_world(mouse_position().into());
 
@@ -211,18 +211,18 @@ impl GameState {
                 self.map.settings = settings.clone();
 
                 let data = Box::new(self.map.clone().into());
-                self.network.send(ClientMessage::SaveMap(data));
-                self.network.send(ClientMessage::MapEditor(false));
+                self.network.send(&ClientMessage::SaveMap(data));
+                self.network.send(&ClientMessage::MapEditor(false));
             }
             Some(Wants::Close) => {
-                self.network.send(ClientMessage::MapEditor(false));
-                self.network.send(ClientMessage::RequestMap);
+                self.network.send(&ClientMessage::MapEditor(false));
+                self.network.send(&ClientMessage::RequestMap);
             }
             Some(Wants::Resize(width, height)) => {
                 self.map = self.map.resize(width, height);
             }
             Some(Wants::Warp(id)) => {
-                self.network.send(ClientMessage::Warp(id, None));
+                self.network.send(&ClientMessage::Warp(id, None));
             }
             Some(Wants::Fill(layer, tile)) => {
                 self.map.fill(layer, tile);
@@ -250,127 +250,135 @@ impl GameState {
 
     fn update_input(&mut self) {
         if !self.ui.block_keyboard {
-            if let Some(player) = self.players.get_mut(&self.local_player) {
-                let movement = if is_key_down(KeyCode::Up) || is_key_down(KeyCode::W) {
-                    Some(Direction::North)
-                } else if is_key_down(KeyCode::Down) || is_key_down(KeyCode::S) {
-                    Some(Direction::South)
-                } else if is_key_down(KeyCode::Left) || is_key_down(KeyCode::A) {
-                    Some(Direction::West)
-                } else if is_key_down(KeyCode::Right) || is_key_down(KeyCode::D) {
-                    Some(Direction::East)
+            self.update_keyboard();
+        }
+        if !self.ui.block_pointer { 
+            self.update_pointer();
+        }
+    }
+
+    fn update_keyboard(&mut self) {
+        if let Some(player) = self.players.get_mut(&self.local_player) {
+            let movement = if is_key_down(KeyCode::Up) || is_key_down(KeyCode::W) {
+                Some(Direction::North)
+            } else if is_key_down(KeyCode::Down) || is_key_down(KeyCode::S) {
+                Some(Direction::South)
+            } else if is_key_down(KeyCode::Left) || is_key_down(KeyCode::A) {
+                Some(Direction::West)
+            } else if is_key_down(KeyCode::Right) || is_key_down(KeyCode::D) {
+                Some(Direction::East)
+            } else {
+                None
+            };
+
+            let speed = if is_key_down(KeyCode::LeftShift) {
+                WALK_SPEED
+            } else {
+                RUN_SPEED
+            };
+            let cache = movement.zip(Some(speed)); // lol
+
+            if cache != self.last_movement {
+                self.last_movement = cache;
+                let velocity = if let Some(direction) = movement {
+                    let velocity = Vec2::from(direction.offset_f32()) * speed as f32;
+
+                    player.animation = Animation::Walking {
+                        start: self.time,
+                        speed,
+                    };
+                    player.velocity = Some(velocity);
+                    player.last_update = self.time;
+                    player.direction = direction;
+
+                    Some(velocity.into())
                 } else {
+                    player.animation = Animation::Standing;
+                    player.velocity = None;
                     None
                 };
 
-                let speed = if is_key_down(KeyCode::LeftShift) {
-                    WALK_SPEED
-                } else {
-                    RUN_SPEED
-                };
-                let cache = movement.zip(Some(speed)); // lol
-
-                if cache != self.last_movement {
-                    self.last_movement = cache;
-                    let velocity = if let Some(direction) = movement {
-                        let velocity = Vec2::from(direction.offset_f32()) * speed as f32;
-
-                        player.animation = Animation::Walking {
-                            start: self.time,
-                            speed,
-                        };
-                        player.velocity = Some(velocity);
-                        player.last_update = self.time;
-                        player.direction = direction;
-
-                        Some(velocity.into())
-                    } else {
-                        player.animation = Animation::Standing;
-                        player.velocity = None;
-                        None
-                    };
-
-                    self.network.send(ClientMessage::Move {
-                        position: player.position.into(),
-                        direction: player.direction,
-                        velocity,
-                    });
-                }
-            }
-
-            // Admin
-            if is_key_pressed(KeyCode::F1) {
-                self.network.send(ClientMessage::MapEditor(true));
+                self.network.send(&ClientMessage::Move {
+                    position: player.position.into(),
+                    direction: player.direction,
+                    velocity,
+                });
             }
         }
 
-        if !self.ui.block_pointer {
-            // Map editor
-            if self.ui.map_editor_shown {
-                match self.ui.map_editor.tab() {
-                    Tab::Tileset => {
-                        let mouse_button = if is_mouse_button_down(MouseButton::Left) {
-                            Some(MouseButton::Left)
-                        } else if is_mouse_button_down(MouseButton::Right) {
-                            Some(MouseButton::Right)
-                        } else {
-                            None
-                        };
+        // Admin
+        if is_key_pressed(KeyCode::F1) {
+            self.network.send(&ClientMessage::MapEditor(true));
+        }
+    }
 
-                        if let Some(mouse_button) = mouse_button {
-                            let mouse_position = self.camera.screen_to_world(mouse_position().into()).as_i32();
-                            let tile_position = mouse_position / TILE_SIZE;
+    fn update_pointer(&mut self) {
 
-                            let current_tile = (mouse_button, tile_position);
+        // Map editor
+        if self.ui.map_editor_shown {
+            match self.ui.map_editor.tab() {
+                Tab::Tileset => {
+                    let mouse_button = if is_mouse_button_down(MouseButton::Left) {
+                        Some(MouseButton::Left)
+                    } else if is_mouse_button_down(MouseButton::Right) {
+                        Some(MouseButton::Right)
+                    } else {
+                        None
+                    };
 
-                            if self.ui.last_tile != Some(current_tile) {
-                                match mouse_button {
-                                    MouseButton::Left => {
-                                        let layer = self.ui.map_editor.layer();
-                                        let tile = self.ui.map_editor.tile();
-                                        self.map.set_tile(layer, tile_position, tile);
-                                    }
-                                    MouseButton::Right => {
-                                        let layer = self.ui.map_editor.layer();
-                                        self.map.clear_tile(layer, tile_position);
-                                    }
-                                    _ => (),
-                                };
+                    if let Some(mouse_button) = mouse_button {
+                        let mouse_position = self.camera.screen_to_world(mouse_position().into()).as_i32();
+                        let tile_position = mouse_position / TILE_SIZE;
 
-                                self.map.update_autotile_cache();
-                                self.ui.last_tile = Some(current_tile);
-                            }
-                        }
-                    }
-                    Tab::Zones => {
-                        let mouse_position = self.camera.screen_to_world(mouse_position().into());
-                        if is_mouse_button_pressed(MouseButton::Right) {
-                            for (i, attrib) in self.map.zones.iter().enumerate().rev() {
-                                if attrib.position.contains(mouse_position) {
-                                    self.map.zones.swap_remove(i);
-                                    break;
+                        let current_tile = (mouse_button, tile_position);
+
+                        if self.ui.last_tile != Some(current_tile) {
+                            match mouse_button {
+                                MouseButton::Left => {
+                                    let layer = self.ui.map_editor.layer();
+                                    let tile = self.ui.map_editor.tile();
+                                    self.map.set_tile(layer, tile_position, tile);
                                 }
+                                MouseButton::Right => {
+                                    let layer = self.ui.map_editor.layer();
+                                    self.map.clear_tile(layer, tile_position);
+                                }
+                                _ => (),
+                            };
+
+                            self.map.update_autotile_cache();
+                            self.ui.last_tile = Some(current_tile);
+                        }
+                    }
+                }
+                Tab::Zones => {
+                    let mouse_position = self.camera.screen_to_world(mouse_position().into());
+                    if is_mouse_button_pressed(MouseButton::Right) {
+                        for (i, attrib) in self.map.zones.iter().enumerate().rev() {
+                            if attrib.position.contains(mouse_position) {
+                                self.map.zones.swap_remove(i);
+                                break;
                             }
                         }
-
-                        let mouse_down = is_mouse_button_down(MouseButton::Left);
-                        if self.ui.drag_start.is_some() && !mouse_down {
-                            let drag_start = self.ui.drag_start.take().unwrap();
-                            let start = drag_start.min(mouse_position);
-                            let size = (drag_start.max(mouse_position) - start).max(vec2(6.0, 6.0)); // assume that 6x6 is the smallest you can make.
-
-                            let drag_rect = Rect::new(start.x, start.y, size.x, size.y);
-
-                            self.map.zones.push(Zone {
-                                position: drag_rect,
-                                data: self.ui.map_editor.zone_data().clone(),
-                            });
-                        } else if self.ui.drag_start.is_none() && mouse_down {
-                            self.ui.drag_start = Some(mouse_position);
-                        };
                     }
-                    Tab::Settings | Tab::Tools => (),
+
+                    let mouse_down = is_mouse_button_down(MouseButton::Left);
+                    if self.ui.drag_start.is_some() && !mouse_down {
+                        let drag_start = self.ui.drag_start.take().unwrap();
+                        let start = drag_start.min(mouse_position);
+                        let size = (drag_start.max(mouse_position) - start).max(vec2(6.0, 6.0)); // assume that 6x6 is the smallest you can make.
+
+                        let drag_rect = Rect::new(start.x, start.y, size.x, size.y);
+
+                        self.map.zones.push(Zone {
+                            position: drag_rect,
+                            data: self.ui.map_editor.zone_data().clone(),
+                        });
+                    } else if self.ui.drag_start.is_none() && mouse_down {
+                        self.ui.drag_start = Some(mouse_position);
+                    };
                 }
+                Tab::Settings | Tab::Tools => (),
             }
         }
     }
@@ -453,7 +461,7 @@ impl GameState {
 }
 
 /// Networking
-impl GameState {
+impl State {
     fn update_network(&mut self) {
         while let Some(event) = self.network.try_receive() {
             match event.network() {
@@ -504,7 +512,7 @@ impl GameState {
 
                 if needs_map {
                     log::debug!("Requesting map..");
-                    self.network.send(ClientMessage::RequestMap);
+                    self.network.send(&ClientMessage::RequestMap);
                 } else {
                     log::debug!("Loading map from");
                     self.change_map(map.unwrap());
@@ -544,13 +552,13 @@ impl GameState {
                 settings,
                 maps,
             } => {
-                self.ui.map_editor.update(MapEditorUpdate {
+                self.ui.map_editor.update(
                     maps,
                     width,
                     height,
                     id,
                     settings,
-                });
+                );
                 self.ui.map_editor_shown = true;
             }
             Flags(client_id, flags) => {
@@ -562,8 +570,8 @@ impl GameState {
     }
 }
 
-pub async fn game_screen(network: Network, client_id: ClientId, assets: Rc<Assets>) {
-    let mut state = GameState::new(network, client_id, assets);
+pub async fn run(network: Network, client_id: ClientId, assets: Rc<Assets>) {
+    let mut state = State::new(network, client_id, assets);
 
     loop {
         state.update();

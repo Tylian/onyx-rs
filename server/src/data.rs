@@ -53,12 +53,12 @@ impl NameCache {
         use std::io::{ErrorKind, Result};
         let contents = match std::fs::read_to_string(Self::path()) {
             Ok(contents) => Result::Ok(contents),
-            Err(e) if e.kind() == ErrorKind::NotFound => return Ok(Default::default()),
+            Err(e) if e.kind() == ErrorKind::NotFound => return Ok(NameCache::default()),
             Err(e) => Result::Err(e),
         }?;
 
         Ok(Self {
-            names: HashSet::from_iter(contents.lines().map(ToString::to_string)),
+            names: contents.lines().map(ToString::to_string).collect(),
         })
     }
     pub fn save(&self) -> Result<()> {

@@ -6,7 +6,7 @@ use macroquad::{color, prelude::*};
 use message_io::node::StoredNetEvent;
 use serde::{Deserialize, Serialize};
 
-use crate::{assets::Assets, network::Network};
+use crate::{assets::Assets, network::Network, ui::dialog};
 
 #[derive(Serialize, Deserialize)]
 struct Settings {
@@ -56,6 +56,7 @@ struct UiState {
     loading: bool,
     error: Option<String>,
     tab: UiTab,
+    dialog: Option<String>
 }
 
 #[derive(Copy, Clone, PartialEq)]
@@ -65,7 +66,7 @@ enum UiTab {
 }
 
 fn draw_login(ui: &mut egui::Ui, state: &mut UiState, _assets: &Assets) {
-    use egui::*;
+    use egui::{Color32, Grid, TextEdit};
 
     Grid::new("login").num_columns(2).show(ui, |ui| {
         ui.label("Username:");
@@ -85,7 +86,7 @@ fn draw_login(ui: &mut egui::Ui, state: &mut UiState, _assets: &Assets) {
         if ui.button("Login").clicked() {
             state.error = None;
             state.loading = true;
-            state.network.send(ClientMessage::Login {
+            state.network.send(&ClientMessage::Login {
                 username: state.username.clone(),
                 password: state.password.clone(),
             });
@@ -100,7 +101,7 @@ fn draw_login(ui: &mut egui::Ui, state: &mut UiState, _assets: &Assets) {
 }
 
 fn draw_create(ui: &mut egui::Ui, state: &mut UiState, _assets: &Assets) {
-    use egui::*;
+    use egui::{Color32, Grid, TextEdit};
 
     Grid::new("create").num_columns(2).show(ui, |ui| {
         ui.label("Username:");
@@ -120,7 +121,7 @@ fn draw_create(ui: &mut egui::Ui, state: &mut UiState, _assets: &Assets) {
         if ui.button("Create character").clicked() {
             state.error = None;
             state.loading = true;
-            state.network.send(ClientMessage::CreateAccount {
+            state.network.send(&ClientMessage::CreateAccount {
                 username: state.username.clone(),
                 password: state.password.clone(),
                 character_name: state.character_name.clone(),
@@ -136,7 +137,7 @@ fn draw_create(ui: &mut egui::Ui, state: &mut UiState, _assets: &Assets) {
 }
 
 fn draw_ui(ctx: &egui::Context, state: &mut UiState, assets: &Assets) {
-    use egui::*;
+    use egui::{Align2, Window};
 
     let login_window = Window::new("Login")
         .anchor(Align2::CENTER_CENTER, [0.0, 0.0])
@@ -155,9 +156,40 @@ fn draw_ui(ctx: &egui::Context, state: &mut UiState, assets: &Assets) {
             }
         });
     });
+
+    // todo
+    if state.dialog.is_some() {
+        let resp = dialog(ctx, |ui| {
+            ui.heading("Hello uwu??");
+            ui.label(state.dialog.as_ref().unwrap());
+            ui.separator();
+
+            ui.horizontal(|ui| {
+                ui.scope(|ui| {
+                    let bg_fill = ui.visuals().selection.bg_fill;
+                    let stroke = ui.visuals().selection.stroke;
+                    ui.visuals_mut().widgets.inactive.bg_fill = bg_fill;
+                    ui.visuals_mut().widgets.active.bg_fill = bg_fill;
+                    ui.visuals_mut().widgets.active.bg_stroke = stroke;
+    
+                    if ui.button("Okay?").clicked() {
+                        state.dialog = None;
+                    }
+                });
+    
+                if ui.button("Close").clicked() {
+                    state.dialog = None;
+                }
+            });
+        });
+
+        if resp.response.clicked() {
+            state.dialog = None;
+        }
+    }
 }
 
-pub async fn title_screen(assets: Rc<Assets>) -> (ClientId, Network) {
+pub async fn run(assets: Rc<Assets>) -> (ClientId, Network) {
     let settings = Settings::load().unwrap_or_default();
 
     let mut state = UiState {
@@ -169,6 +201,7 @@ pub async fn title_screen(assets: Rc<Assets>) -> (ClientId, Network) {
         save_password: settings.password.is_some(),
         password: settings.password.unwrap_or_default(),
         character_name: String::new(),
+        dialog: Some(String::from("Do you like weeD????????????????")),
     };
 
     loop {

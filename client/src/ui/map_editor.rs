@@ -68,14 +68,6 @@ pub enum Wants {
     Fill(MapLayer, Option<Tile>),
 }
 
-pub struct MapEditorUpdate {
-    pub maps: HashMap<MapId, String>,
-    pub width: u32,
-    pub height: u32,
-    pub id: MapId,
-    pub settings: MapSettings,
-}
-
 pub struct MapEditor {
     tab: Tab,
     wants: Option<Wants>,
@@ -140,13 +132,20 @@ impl MapEditor {
         }
     }
 
-    pub fn update(&mut self, update: MapEditorUpdate) {
-        self.maps = update.maps;
-        self.new_width = update.width;
-        self.new_height = update.height;
-        self.id = update.id;
-        self.selected_id = update.id;
-        self.settings = update.settings;
+    pub fn update(
+        &mut self,
+        maps: HashMap<MapId, String>,
+        width: u32,
+        height: u32,
+        id: MapId,
+        settings: MapSettings,
+    ) {
+        self.maps = maps;
+        self.new_width = width;
+        self.new_height = height;
+        self.id = id;
+        self.selected_id = id;
+        self.settings = settings;
     }
 
     /// The map editor requests a specific thing

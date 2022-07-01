@@ -310,7 +310,7 @@ impl Map {
             .get(&layer)
             .unwrap()
             .get((position.x as usize, position.y as usize))
-            .and_then(|inner| inner.as_ref())
+            .and_then(Option::as_ref)
     }
 
     pub fn tile_mut(&mut self, layer: MapLayer, position: IVec2) -> Option<&mut Tile> {
@@ -318,7 +318,7 @@ impl Map {
             .get_mut(&layer)
             .unwrap()
             .get_mut((position.x as usize, position.y as usize))
-            .and_then(|inner| inner.as_mut())
+            .and_then(Option::as_mut)
     }
 
     // Sets a tile, returning the previous one if it existed
@@ -336,11 +336,11 @@ impl Map {
             .get_mut(&layer)
             .unwrap()
             .get_mut((position.x as usize, position.y as usize))
-            .and_then(|tile| tile.take())
+            .and_then(Option::take)
     }
 
     pub fn tiles(&self, layer: MapLayer) -> impl Iterator<Item = Option<&Tile>> {
-        self.layers[&layer].iter().map(|tile| tile.as_ref())
+        self.layers[&layer].iter().map(Option::as_ref)
     }
 
     pub fn draw_layer(&self, layer: MapLayer, time: f64, assets: &Assets) {
@@ -415,7 +415,7 @@ impl Map {
 
         for layer in MapLayer::iter() {
             let tiles = Zip::from(indices(dimensions))
-                .map_collect(|index| self.layers.get(&layer).and_then(|f| f.get(index).cloned()).flatten());
+                .map_collect(|index| self.layers.get(&layer).and_then(|f| f.get(index).copied()).flatten());
             layers.insert(layer, tiles);
             autotiles.insert(layer, Array2::default(dimensions));
         }

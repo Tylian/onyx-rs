@@ -89,6 +89,7 @@ pub enum Direction {
 }
 
 impl Direction {
+    #[must_use]
     pub fn reverse(&self) -> Self {
         match self {
             Self::South => Self::North,

@@ -1,6 +1,7 @@
 mod chat_window;
 mod map_editor;
 
+use egui::{Area, Shape, Rounding, Align2, Order, InnerResponse, Frame};
 use egui::{popup_below_widget, Id, Image, Rect, Response, ScrollArea, Sense, TextureHandle, Ui};
 
 use common::SPRITE_SIZE;
@@ -9,6 +10,37 @@ use crate::utils::ping_pong;
 
 pub use self::chat_window::*;
 pub use self::map_editor::*;
+
+// ! A few functions in here are dead code, remove them if need be eventually.
+
+pub fn dialog<R>(ctx: &egui::Context, add_contents: impl FnOnce(&mut egui::Ui) -> R) -> InnerResponse<R> {
+    // vaguely based on the following code, thanks!
+    // https://github.com/4JX/mCubed/blob/8a3b0a1568cbca3c372416db9a82f69b088ae0c6/main/src/ui/widgets/screen_prompt.rs
+    Area::new("prompt_bg")
+        .fixed_pos(egui::Pos2::ZERO)
+        .show(ctx, |ui| {
+            let screen_rect = ctx.input().screen_rect;
+
+            ui.allocate_response(screen_rect.size(), Sense::click());
+
+            // 50% opacity non-interative color
+            let shade_color = ui.visuals().noninteractive().bg_fill.linear_multiply(0.5);
+
+            ui.painter().add(Shape::rect_filled(
+                screen_rect,
+                Rounding::none(),
+                shade_color
+            ));
+
+            Area::new("prompt_centered")
+                .fixed_pos(egui::Pos2::ZERO)
+                .anchor(Align2::CENTER_CENTER, egui::Vec2::splat(0.0))
+                .order(Order::Foreground)
+                .show(ctx, |ui| {
+                    Frame::window(ui.style()).show(ui, add_contents).inner
+                }).inner
+        })
+}
 
 // TODO multiple tile selections
 pub fn tile_selector(ui: &mut Ui, texture: &TextureHandle, selected: &mut egui::Pos2, snap: egui::Vec2) {
@@ -35,7 +67,7 @@ pub fn tile_selector(ui: &mut Ui, texture: &TextureHandle, selected: &mut egui::
         response
     });
 }
-
+#[allow(dead_code)] // keeping it for a rainy day
 pub fn sprite_preview(ui: &mut Ui, texture: &TextureHandle, time: f64, sprite: u32) -> Response {
     let sprite_x = (sprite as f64 % 4.0) * 3.0;
     let sprite_y = (sprite as f64 / 4.0).floor() * 4.0;
@@ -60,6 +92,7 @@ pub fn sprite_preview(ui: &mut Ui, texture: &TextureHandle, time: f64, sprite: u
     ui.add(sprite)
 }
 
+#[allow(dead_code)] // keeping it for a rainy day
 fn auto_complete<T: AsRef<str>>(ui: &mut Ui, popup_id: Id, suggestions: &[T], current: &mut String) {
     let filtered = suggestions
         .iter()
@@ -81,8 +114,7 @@ fn auto_complete<T: AsRef<str>>(ui: &mut Ui, popup_id: Id, suggestions: &[T], cu
                         *current = String::from(item);
                     }
                 }
-            })
-            .inner
+            });
     });
 
     // crappy attempt at fixing a bug lmao
@@ -91,6 +123,7 @@ fn auto_complete<T: AsRef<str>>(ui: &mut Ui, popup_id: Id, suggestions: &[T], cu
     }
 }
 
+#[allow(dead_code)] // keeping it for a rainy day
 fn option_combo<H, T, F>(ui: &mut Ui, id: H, selected: &mut Option<T>, render: F, list: &[T])
 where
     H: std::hash::Hash,
@@ -108,12 +141,13 @@ where
                     .selectable_label(selected.as_ref() == Some(item), render(Some(item)))
                     .clicked()
                 {
-                    *selected = Some(item.clone())
+                    *selected = Some(item.clone());
                 }
             }
         });
 }
 
+#[allow(dead_code)] // keeping it for a rainy day
 fn option_textedit(ui: &mut Ui, value: &mut Option<String>) -> Response {
     ui.horizontal(|ui| {
         let mut enabled = value.is_some();
