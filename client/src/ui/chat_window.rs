@@ -1,5 +1,5 @@
 use common::network::ChatChannel;
-use egui::{Color32, Key, Response, ScrollArea, Ui, Window, ComboBox, RichText};
+use egui::{Color32, ComboBox, Key, Response, RichText, ScrollArea, Ui, Window};
 use egui_extras::{Size, StripBuilder};
 use macroquad::window::screen_height;
 
@@ -18,7 +18,7 @@ fn channel_info(channel: ChatChannel) -> (Color32, &'static str) {
         ChatChannel::Server => (Color32::GOLD, "Server"),
         ChatChannel::Say => (Color32::WHITE, "Say"),
         ChatChannel::Global => (Color32::from_rgb(0x75, 0x6d, 0xd1), "Global"),
-        ChatChannel::Error => (Color32::RED, "Error")
+        ChatChannel::Error => (Color32::RED, "Error"),
     }
 }
 
@@ -87,9 +87,21 @@ impl ChatWindow {
                                 ComboBox::from_id_source("chat channel")
                                     .selected_text(channel_label(self.channel))
                                     .show_ui(ui, |ui| {
-                                        ui.selectable_value(&mut self.channel, ChatChannel::Say, channel_label(ChatChannel::Say));
-                                        ui.selectable_value(&mut self.channel, ChatChannel::Global, channel_label(ChatChannel::Global));
-                                        ui.selectable_value(&mut self.channel, ChatChannel::Server, channel_label(ChatChannel::Server));
+                                        ui.selectable_value(
+                                            &mut self.channel,
+                                            ChatChannel::Say,
+                                            channel_label(ChatChannel::Say),
+                                        );
+                                        ui.selectable_value(
+                                            &mut self.channel,
+                                            ChatChannel::Global,
+                                            channel_label(ChatChannel::Global),
+                                        );
+                                        ui.selectable_value(
+                                            &mut self.channel,
+                                            ChatChannel::Server,
+                                            channel_label(ChatChannel::Server),
+                                        );
                                     });
                             });
                             strip.cell(|ui| {

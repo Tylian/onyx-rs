@@ -65,7 +65,7 @@ pub enum Wants {
     /// Map editor wishes to resize the map
     Resize(u32, u32),
     /// Map editor wishes to fill the layer with a tile
-    Fill(MapLayer, Option<Tile>)
+    Fill(MapLayer, Option<Tile>),
 }
 
 pub struct MapEditorUpdate {

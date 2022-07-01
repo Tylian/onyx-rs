@@ -27,6 +27,4 @@ impl From<Player> for NetworkPlayer {
     }
 }
 
-impl Player {
-    
-}
+impl Player {}

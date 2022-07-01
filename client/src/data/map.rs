@@ -183,7 +183,7 @@ impl AttributeDataEx for ZoneData {
     fn text(&self) -> String {
         match self {
             ZoneData::Blocked => String::from("Blocked"),
-            ZoneData::Warp(_, _, _) => String::from("Warp")
+            ZoneData::Warp(_, _, _) => String::from("Warp"),
         }
     }
     fn color(&self) -> Color {
@@ -302,10 +302,7 @@ impl Map {
     }
 
     pub fn fill(&mut self, layer: MapLayer, tile: Option<Tile>) {
-        self.layers
-            .get_mut(&layer)
-            .unwrap()
-            .fill(tile);
+        self.layers.get_mut(&layer).unwrap().fill(tile);
     }
 
     pub fn tile(&self, layer: MapLayer, position: IVec2) -> Option<&Tile> {

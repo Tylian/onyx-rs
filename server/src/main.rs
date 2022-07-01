@@ -6,7 +6,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use anyhow::Result;
+use anyhow::{Result, bail, anyhow};
 use base64ct::{Base64, Encoding};
 use chrono::Utc;
 use common::{
@@ -14,16 +14,16 @@ use common::{
     SPRITE_SIZE,
 };
 use env_logger::WriteStyle;
-use euclid::default::{Point2D, Size2D, Vector2D, Box2D};
+use euclid::default::{Box2D, Point2D, Size2D, Vector2D};
 use log::LevelFilter;
 use message_io::{
     network::{Endpoint, NetworkController, Transport},
     node::{self, NodeHandler, StoredNetEvent},
 };
-use sha2::{Digest, Sha256};
 use rand::prelude::*;
+use sha2::{Digest, Sha256};
 
-use crate::data::{NameCache, Player, Config, Map};
+use crate::data::{Config, Map, NameCache, Player};
 
 fn main() -> anyhow::Result<()> {
     #[cfg(debug_assertions)]
@@ -33,9 +33,7 @@ fn main() -> anyhow::Result<()> {
         .init();
 
     #[cfg(not(debug_assertions))]
-    env_logger::builder()
-        .filter_level(LevelFilter::Info)
-        .init();
+    env_logger::builder().filter_level(LevelFilter::Info).init();
 
     let game_server = GameServer::new()?;
     game_server.run();
@@ -60,7 +58,7 @@ struct GameServer {
     /// Time since last update
     dt: Duration,
     handler: Option<NodeHandler<()>>,
-    rng: ThreadRng
+    rng: ThreadRng,
 }
 
 impl GameServer {
@@ -80,7 +78,7 @@ impl GameServer {
             dt: Duration::ZERO,
             handler: None,
             maps,
-            rng: rand::thread_rng()
+            rng: rand::thread_rng(),
         })
     }
 
@@ -126,7 +124,24 @@ impl GameServer {
                         let client_id = peer_map
                             .get(&endpoint)
                             .expect("receiving from an endpoint that doesn't have an id??");
-                        self.handle_login_message(*client_id, message);
+
+                        if let Err(e) = self.handle_message(*client_id, message) {
+                            if let Some(client_id) = peer_map.remove(&endpoint) {
+                                self.peer_map.remove(&client_id);
+                                self.handle_disconnect(client_id);
+                            }
+
+                            log::warn!(
+                                "Disconnecting client ({}), message handler returned an error: {e}",
+                                endpoint.addr(),
+                            );
+
+                            log::info!(
+                                "Client ({}) disconnected (total clients: {})",
+                                endpoint.addr(),
+                                peer_map.len()
+                            );
+                        }
                     }
                     StoredNetEvent::Disconnected(endpoint) => {
                         if let Some(client_id) = peer_map.remove(&endpoint) {
@@ -171,7 +186,7 @@ impl GameServer {
         }
     }
 
-    fn handle_login_message(&mut self, client_id: ClientId, message: ClientMessage) {
+    fn handle_message(&mut self, client_id: ClientId, message: ClientMessage) -> Result<()> {
         use ClientMessage::*;
 
         match &message {
@@ -182,8 +197,14 @@ impl GameServer {
         }
 
         if self.players.contains_key(&client_id) {
-            return self.handle_message(client_id, message);
+            self.handle_game_message(client_id, message)
+        } else {
+            self.handle_login_message(client_id, message)
         }
+    }
+
+    fn handle_login_message(&mut self, client_id: ClientId, message: ClientMessage) -> Result<()> {
+        use ClientMessage::*;
 
         match message {
             CreateAccount {
@@ -230,9 +251,11 @@ impl GameServer {
                 }
             }
             _ => {
-                log::error!("Client sent a packet when it's not connected");
+                bail!("Client attempted to send a packet that is invalid while logged in");
             }
         }
+
+        Ok(())
     }
 
     fn check_password(username: &str, password: &str) -> Option<Player> {
@@ -240,14 +263,14 @@ impl GameServer {
             let hash = Sha256::digest(password);
             let password = Base64::encode_string(&hash);
             if player.password == password {
-                return Some(player)
-            } 
+                return Some(player);
+            }
         }
 
         None
     }
 
-    fn handle_message(&mut self, client_id: ClientId, message: ClientMessage) {
+    fn handle_game_message(&mut self, client_id: ClientId, message: ClientMessage) -> Result<()> {
         use ClientMessage::*;
 
         match message {
@@ -255,41 +278,41 @@ impl GameServer {
             Login { .. } => unreachable!(),
 
             Message(channel, text) => {
-                if let Some(player) = self.players.get(&client_id) {
-                    match channel {
-                        ChatChannel::Echo | ChatChannel::Error => log::warn!("Client tried to talk in an invalid channel"),
-                        ChatChannel::Server => {
-                            let packet = ServerMessage::Message(ChatChannel::Server, text);
-                            self.send_all(packet);
-                        }
-                        ChatChannel::Say => {
-                            let full_text = format!("{}: {}", player.name, text);
+                let player = self.players.get(&client_id).unwrap();
+                match channel {
+                    ChatChannel::Echo | ChatChannel::Error => {
+                        log::warn!("Client tried to talk in an invalid channel")
+                    }
+                    ChatChannel::Server => {
+                        let packet = ServerMessage::Message(ChatChannel::Server, text);
+                        self.send_all(packet);
+                    }
+                    ChatChannel::Say => {
+                        let full_text = format!("{}: {}", player.name, text);
 
-                            let packet = ServerMessage::Message(ChatChannel::Say, full_text);
-                            self.send_map(player.map, packet);
-                        }
-                        ChatChannel::Global => {
-                            let full_text = format!("{}: {}", player.name, text);
-                            let packet = ServerMessage::Message(ChatChannel::Global, full_text);
-                            self.send_all(packet);
-                        }
+                        let packet = ServerMessage::Message(ChatChannel::Say, full_text);
+                        self.send_map(player.map, packet);
+                    }
+                    ChatChannel::Global => {
+                        let full_text = format!("{}: {}", player.name, text);
+                        let packet = ServerMessage::Message(ChatChannel::Global, full_text);
+                        self.send_all(packet);
                     }
                 }
             }
             RequestMap => {
-                if let Some(map_id) = self.players.get(&client_id).map(|p| p.map) {
-                    let map = self.maps.entry(map_id).or_insert_with(|| create_map(map_id));
+                let map_id = self.players.get(&client_id).unwrap().map;
+                let map = self.maps.entry(map_id).or_insert_with(|| create_map(map_id));
 
-                    let packet = ServerMessage::MapData(Box::new(map.clone().into()));
-                    self.send(client_id, packet);
-                }
+                let packet = ServerMessage::MapData(Box::new(map.clone().into()));
+                self.send(client_id, packet);
             }
             SaveMap(map) => {
-                let map_id = self.players.get(&client_id).map(|p| p.map).unwrap();
+                let map_id = self.players.get(&client_id).unwrap().map;
                 let mut map = Map::from(*map);
 
                 map.settings.cache_key = Utc::now().timestamp_millis();
-                
+
                 if let Err(e) = map.save() {
                     log::error!("Couldn't save map {e}");
                 }
@@ -303,20 +326,35 @@ impl GameServer {
                 direction,
                 velocity,
             } => {
-                let player = self.players.get_mut(&client_id).unwrap();
-                player.position = position.into();
-                player.velocity = velocity.map(Into::into);
-                player.direction = direction;
+                let map_id = self.players.get(&client_id).unwrap().map;
+                let map = self.maps.get(&map_id).ok_or_else(|| anyhow!("couldn't get player's map"))?;
 
-                let packet = ServerMessage::PlayerMove {
-                    client_id,
-                    position,
-                    direction,
-                    velocity,
-                };
+                let valid = check_collision_with(
+                    position.into(),
+                    map.zones.iter().filter(|zone| zone.data == ZoneData::Blocked),
+                    |zone| Box2D::from_origin_and_size(zone.position.into(), zone.size.into())
+                ).is_none();
 
-                let map_id = player.map;
-                self.send_map_except(map_id, client_id, packet);
+                if valid {
+                    let player = self.players.get_mut(&client_id).unwrap();
+
+                    player.position = position.into();
+                    player.velocity = velocity.map(Into::into);
+                    player.direction = direction;
+
+                    let packet = ServerMessage::PlayerMove {
+                        client_id,
+                        position,
+                        direction,
+                        velocity,
+                    };
+
+                    let map_id = player.map;
+                    self.send_map_except(map_id, client_id, packet);
+                } else {
+                    // warping them to the default will just update them with the server truth
+                    self.warp_player(client_id, map_id, WarpParams::default());
+                }
             }
             Warp(map_id, position) => {
                 // note: the requested map possibly doesn't exist
@@ -330,7 +368,8 @@ impl GameServer {
                     },
                 );
 
-                self.send_map_editor(client_id, map_id);
+                // above warp *needs* to create the map or this will fail
+                self.send_map_editor(client_id, map_id)?;
             }
             MapEditor(open) => {
                 let player = self.players.get_mut(&client_id).unwrap();
@@ -342,19 +381,21 @@ impl GameServer {
                 self.send_map(map_id, ServerMessage::Flags(client_id, flags));
 
                 if open {
-                    self.send_map_editor(client_id, map_id);
+                    self.send_map_editor(client_id, map_id)?;
                 }
             }
         }
+
+        Ok(())
     }
 
-    fn send_map_editor(&self, client_id: ClientId, map_id: MapId) {
+    fn send_map_editor(&self, client_id: ClientId, map_id: MapId) -> Result<()> {
         let maps = self
             .maps
             .iter()
             .map(|(&id, map)| (id, map.settings.name.clone()))
             .collect::<HashMap<_, _>>();
-        let map = self.maps.get(&map_id).unwrap();
+        let map = self.maps.get(&map_id).ok_or_else(|| anyhow!("could not get map"))?;
 
         let id = map_id;
         let width = map.width;
@@ -371,6 +412,8 @@ impl GameServer {
                 settings,
             },
         );
+
+        Ok(())
     }
 
     fn join_game(&mut self, client_id: ClientId, player: Player) {
@@ -414,14 +457,15 @@ impl GameServer {
         let sprite_size = Size2D::new(SPRITE_SIZE as f32, SPRITE_SIZE as f32 / 2.0);
         let sprite_offset = Vector2D::new(0.0, SPRITE_SIZE as f32 / 2.0);
 
-        let player_boxes = self.players.iter()
-            .map(|(client_id, player)| (
-                *client_id,
-                Box2D::from_origin_and_size(
-                    player.position + sprite_offset,
-                    sprite_size
+        let player_boxes = self
+            .players
+            .iter()
+            .map(|(client_id, player)| {
+                (
+                    *client_id,
+                    Box2D::from_origin_and_size(player.position + sprite_offset, sprite_size),
                 )
-            ))
+            })
             .collect::<Vec<_>>();
 
         for (client_id, player) in &mut self.players {
@@ -434,44 +478,47 @@ impl GameServer {
                 let offset = velocity * dt.as_secs_f32();
                 let new_position = player.position + offset;
                 let mut valid = true;
-
-                // only block on the bottom half of the sprite, feels better
-                let sprite = Box2D::from_origin_and_size(
-                    new_position + sprite_offset, 
-                    sprite_size
-                );
-
-                let map_box = map.to_box2d();
-
+                
+                // map bounds
                 if !player.flags.in_map_editor {
                     // map warps, lots of copy paste code lol
-                    if let Some((map_id, new_position)) = check_edge_warp(map, new_position) {
-                        to_warp.push((
-                            *client_id,
-                            map_id,
-                            WarpParams {
-                                position: Some(new_position),
-                                ..Default::default()
-                            },
-                        ));
+                    if let Some((direction, new_position)) = check_edge_warp(map, new_position) {
+                        let map_id = match direction {
+                            Direction::North => map.settings.warps.north,
+                            Direction::South => map.settings.warps.south,
+                            Direction::East => map.settings.warps.east,
+                            Direction::West => map.settings.warps.west,
+                        };
+
+                        if let Some(map_id) = map_id {
+                            to_warp.push((
+                                *client_id,
+                                map_id,
+                                WarpParams {
+                                    position: Some(new_position),
+                                    ..Default::default()
+                                },
+                            ));
+                            
+                        }
+
                         valid = false;
                     }
                 }
 
-                // map bounds
-                valid &= map_box.contains_box(&sprite);
-
                 if !player.flags.in_map_editor {
                     // block zones
-                    valid &= !map.zones.iter()
-                        .filter(|zone| zone.data == ZoneData::Blocked)
-                        .map(|zone| Box2D::from_origin_and_size(zone.position.into(), zone.size.into()))
-                        .any(|box2d| box2d.intersects(&sprite));
+                    valid &= check_collision_with(
+                        player.position,
+                        map.zones.iter().filter(|zone| zone.data == ZoneData::Blocked),
+                        |zone| Box2D::from_origin_and_size(zone.position.into(), zone.size.into())
+                    ).is_none();
 
-                    // other players
-                    valid &= !player_boxes.iter()
-                        .filter(|(cid, _box2d)| cid != client_id)
-                        .any(|(_cid, box2d)| box2d.intersects(&sprite));
+                    valid &= check_collision_with(
+                        player.position,
+                        player_boxes.iter().filter(|(cid, _box2d)| cid != client_id),
+                        |(_cid, box2d)| *box2d
+                    ).is_none();
                 }
 
                 log::debug!("{valid}");
@@ -480,32 +527,30 @@ impl GameServer {
                     player.position = new_position;
                 }
             }
+            
+            if !player.flags.in_map_editor {
+                let warp = check_collision_with(
+                    player.position,
+                    map.zones.iter().filter(|zone| matches!(zone.data, ZoneData::Warp(_, _, _))),
+                    |zone| Box2D::from_origin_and_size(zone.position.into(), zone.size.into())
+                );
 
-            let sprite = Box2D::from_origin_and_size(
-                Point2D::new(player.position.x, player.position.y + SPRITE_SIZE as f32 / 2.0),
-                Size2D::new(SPRITE_SIZE as f32, SPRITE_SIZE as f32 / 2.0),
-            );
+                if let Some(warp) = warp {
+                    let (map_id, position, direction) = match warp.data {
+                        ZoneData::Warp(a, b, c) => (a, b, c),
+                        _ => unreachable!()
+                    };
 
-            for zone in map.zones.iter() {
-                match &zone.data {
-                    ZoneData::Warp(map_id, position, direction) => {
-                        if !player.flags.in_map_editor {
-                            let box2d = Box2D::from_origin_and_size(zone.position.into(), zone.size.into());
-                            if box2d.intersects(&sprite) {
-                                to_warp.push((
-                                    *client_id,
-                                    *map_id,
-                                    WarpParams {
-                                        position: Some((*position).into()),
-                                        direction: *direction,
-                                        velocity: direction.map(|_| None),
-                                        ..Default::default()
-                                    },
-                                ));
-                            }
-                        }
-                    }
-                    ZoneData::Blocked => (),
+                    to_warp.push((
+                        *client_id,
+                        map_id,
+                        WarpParams {
+                            position: Some((position).into()),
+                            velocity: direction.map(|_| None),
+                            direction,
+                            ..Default::default()
+                        },
+                    ));
                 }
             }
         }
@@ -539,7 +584,9 @@ impl GameServer {
 
             self.send(client_id, ServerMessage::ChangeMap(map_id, cache_key));
 
-            let packets = self.players.iter()
+            let packets = self
+                .players
+                .iter()
                 .filter(|(_, data)| data.map == map_id)
                 .map(|(&cid, data)| ServerMessage::PlayerJoined(cid, data.clone().into()))
                 .collect::<Vec<_>>();
@@ -639,33 +686,49 @@ impl GameServer {
     }
 }
 
-fn check_edge_warp(map: &Map, position: Point2D<f32>) -> Option<(MapId, Point2D<f32>)> {
+fn check_bounds(position: Point2D<f32>, bounds: Box2D<f32>) -> Option<Direction> {
+    let bounds = bounds.to_rect();
     let sprite = sprite_box(position);
 
-    let map_rect = map.to_box2d().to_rect();
-    for (direction, warp) in map.settings.warps.iter() {
-        if let Some(map_id) = warp {
-            let valid = match direction {
-                Direction::North => sprite.min.y <= map_rect.min_y(),
-                Direction::South => sprite.max.y >= map_rect.max_y(),
-                Direction::West => sprite.min.x <= map_rect.min_x(),
-                Direction::East => sprite.max.x >= map_rect.max_x(),
-            };
-
-            if valid {
-                let new_position = match direction {
-                    Direction::North => Point2D::new(position.x, map_rect.max_y() - SPRITE_SIZE as f32),
-                    Direction::South => Point2D::new(position.x, -SPRITE_SIZE as f32 / 2.0),
-                    Direction::West => Point2D::new(map_rect.max_x() - SPRITE_SIZE as f32, position.y),
-                    Direction::East => Point2D::new(0.0, position.y),
-                };
-
-                return Some((*map_id, new_position));
-            }
-        }
+    if sprite.min.y <= bounds.min_y() {
+        Some(Direction::North)
+    } else if sprite.max.y >= bounds.max_y() {
+        Some(Direction::South)
+    } else if sprite.min.x <= bounds.min_x() {
+        Some(Direction::West)
+    } else if sprite.max.x >= bounds.max_x() {
+        Some(Direction::East)
+    } else {
+        None
     }
+}
 
-    None
+fn check_collision_with<'a, T>(
+    position: Point2D<f32>,
+    mut blockers: impl Iterator<Item = &'a T>,
+    map_with: impl Fn(&'a T) -> Box2D<f32>,
+) -> Option<&'a T> {
+    let sprite = sprite_box(position);
+
+    blockers.find(|item| sprite.intersects(&map_with(item)))
+}
+
+fn check_edge_warp(map: &Map, position: Point2D<f32>) -> Option<(Direction, Point2D<f32>)> {
+    let map_box = map.to_box2d();
+
+    if let Some(direction) = check_bounds(position, map_box) {
+        let map_rect = map_box.to_rect();
+        let new_position = match direction {
+            Direction::North => Point2D::new(position.x, map_rect.max_y() - SPRITE_SIZE as f32),
+            Direction::South => Point2D::new(position.x, -SPRITE_SIZE as f32 / 2.0),
+            Direction::West => Point2D::new(map_rect.max_x() - SPRITE_SIZE as f32, position.y),
+            Direction::East => Point2D::new(0.0, position.y),
+        };
+
+        Some((direction, new_position))
+    } else {
+        None
+    }
 }
 
 fn create_map(id: MapId) -> Map {
@@ -675,11 +738,8 @@ fn create_map(id: MapId) -> Map {
 }
 
 fn sprite_box(position: Point2D<f32>) -> Box2D<f32> {
-    const SPRITE_SIZE2D: Size2D<f32>  = Size2D::new(SPRITE_SIZE as f32, SPRITE_SIZE as f32 / 2.0);
+    const SPRITE_SIZE2D: Size2D<f32> = Size2D::new(SPRITE_SIZE as f32, SPRITE_SIZE as f32 / 2.0);
     const SPRITE_OFFSET: Vector2D<f32> = Vector2D::new(0.0, SPRITE_SIZE as f32 / 2.0);
 
-    Box2D::from_origin_and_size(
-        position + SPRITE_OFFSET, 
-        SPRITE_SIZE2D
-    )
+    Box2D::from_origin_and_size(position + SPRITE_OFFSET, SPRITE_SIZE2D)
 }

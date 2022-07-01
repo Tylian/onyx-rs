@@ -9,12 +9,12 @@ use macroquad::window::Conf;
 use crate::{assets::Assets, game::game_screen, title::title_screen};
 
 mod assets;
+mod data;
 mod game;
 mod network;
 mod title;
 mod ui;
 mod utils;
-mod data;
 
 fn window_conf() -> Conf {
     Conf {
@@ -34,9 +34,7 @@ async fn main() {
         .init();
 
     #[cfg(not(debug_assertions))]
-    env_logger::builder()
-        .filter_level(LevelFilter::Info)
-        .init();
+    env_logger::builder().filter_level(LevelFilter::Info).init();
 
     let assets = Assets::load().await.expect("Could not load assets");
     let assets = Rc::new(assets);

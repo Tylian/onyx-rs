@@ -60,7 +60,7 @@ pub enum ServerMessage {
         height: u32,
         settings: MapSettings,
     },
-    Flags(ClientId, PlayerFlags)
+    Flags(ClientId, PlayerFlags),
 }
 
 #[derive(Copy, Clone, Serialize, Deserialize, PartialEq, Debug)]
@@ -150,7 +150,7 @@ pub struct Player {
 
 #[derive(Copy, Clone, Serialize, Deserialize, PartialEq, Debug, Default)]
 pub struct PlayerFlags {
-    pub in_map_editor: bool
+    pub in_map_editor: bool,
 }
 
 #[derive(Copy, Clone, Serialize, Deserialize, PartialEq, Debug)]

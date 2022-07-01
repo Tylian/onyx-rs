@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
-use anyhow::{Result, Context};
-use common::network::{Direction, MapId, PlayerFlags, Player as NetworkPlayer};
+use anyhow::{Context, Result};
+use common::network::{Direction, MapId, Player as NetworkPlayer, PlayerFlags};
 use euclid::default::{Point2D, Vector2D};
 use serde::{Deserialize, Serialize};
 
@@ -18,7 +18,7 @@ pub struct Player {
     pub map: MapId,
 
     #[serde(skip)]
-    pub flags: PlayerFlags
+    pub flags: PlayerFlags,
 }
 
 impl Default for Player {

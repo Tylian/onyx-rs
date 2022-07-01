@@ -10,8 +10,8 @@ use macroquad::{color, prelude::*};
 use message_io::node::StoredNetEvent;
 
 use crate::{
-    data::{draw_zone, Map, Zone, Animation, Player},
     assets::Assets,
+    data::{draw_zone, Animation, Map, Player, Zone},
     network::Network,
     ui::{ChatWindow, MapEditor, MapEditorUpdate, Tab, Wants},
     utils::draw_text_shadow,
@@ -85,7 +85,6 @@ impl GameState {
         } else {
             self.network.send(ClientMessage::Message(channel, text));
         }
-        
     }
 
     fn update(&mut self) {
@@ -105,16 +104,20 @@ impl GameState {
     }
 
     fn update_players(&mut self) {
-        let player_boxes = self.players.iter()
-            .map(|(cid, player)| (
-                *cid,
-                Rect::new(
-                    player.position.x,
-                    player.position.y + SPRITE_SIZE as f32 / 2.0,
-                    SPRITE_SIZE as f32,
-                    SPRITE_SIZE as f32 / 2.0,
+        let player_boxes = self
+            .players
+            .iter()
+            .map(|(cid, player)| {
+                (
+                    *cid,
+                    Rect::new(
+                        player.position.x,
+                        player.position.y + SPRITE_SIZE as f32 / 2.0,
+                        SPRITE_SIZE as f32,
+                        SPRITE_SIZE as f32 / 2.0,
+                    ),
                 )
-            ))
+            })
             .collect::<Vec<_>>();
 
         for (client_id, player) in self.players.iter_mut() {
@@ -137,11 +140,15 @@ impl GameState {
                     && sprite_rect.bottom() < map_height;
 
                 if !player.flags.in_map_editor {
-                    valid &= !player_boxes.iter()
+                    valid &= !player_boxes
+                        .iter()
                         .filter(|(cid, _b)| cid != client_id)
                         .any(|(_, b)| b.overlaps(&sprite_rect));
 
-                    valid &= !self.map.zones.iter()
+                    valid &= !self
+                        .map
+                        .zones
+                        .iter()
                         .filter(|zone| zone.data == ZoneData::Blocked)
                         .any(|zone| zone.position.overlaps(&sprite_rect));
                 }
@@ -168,7 +175,7 @@ impl GameState {
 
     fn update_ui(&mut self, ctx: &egui::Context) {
         use egui::*;
-        
+
         let mouse_position = self.camera.screen_to_world(mouse_position().into());
 
         // Show egui debugging
@@ -195,7 +202,7 @@ impl GameState {
         self.ui
             .map_editor
             .show(ctx, &self.assets, &mut self.ui.map_editor_shown);
-        
+
         match self.ui.map_editor.wants() {
             None => (),
             Some(Wants::Save) => {
@@ -391,6 +398,8 @@ impl GameState {
                 position.y = (map_height - screen_height()) / 2.0;
             }
 
+            position.round();
+
             self.clip_rect = Rect::new(position.x, position.y, screen_width(), screen_height());
             self.camera = Camera2D::from_display_rect(self.clip_rect);
         }
@@ -406,8 +415,7 @@ impl GameState {
         self.map.draw_layer(MapLayer::Mask, self.time, &self.assets);
         self.map.draw_layer(MapLayer::Mask2, self.time, &self.assets);
 
-        let mut players = self.players.values()
-            .collect::<Vec<_>>();
+        let mut players = self.players.values().collect::<Vec<_>>();
 
         players.sort_by(|a, b| a.position.y.partial_cmp(&b.position.y).unwrap());
 
@@ -475,7 +483,8 @@ impl GameState {
             JoinGame(_) | FailedJoin(_) => unreachable!(),
 
             PlayerJoined(id, player_data) => {
-                self.players.insert(id, Player::from_network(id, player_data, self.time));
+                self.players
+                    .insert(id, Player::from_network(id, player_data, self.time));
             }
             PlayerLeft(id) => {
                 self.players.remove(&id);
@@ -548,7 +557,7 @@ impl GameState {
                 if let Some(player) = self.players.get_mut(&client_id) {
                     player.flags = flags;
                 }
-            },
+            }
         }
     }
 }

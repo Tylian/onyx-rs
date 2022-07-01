@@ -1,6 +1,6 @@
 use common::{
     network::{ClientId, Direction, Player as NetworkPlayer, PlayerFlags},
-    TILE_SIZE, SPRITE_SIZE
+    SPRITE_SIZE, TILE_SIZE,
 };
 use macroquad::prelude::*;
 
@@ -61,7 +61,7 @@ impl Player {
             animation: if let Some(velocity) = data.velocity {
                 Animation::Walking {
                     start: time,
-                    speed: Vec2::from(velocity).length() as f64
+                    speed: Vec2::from(velocity).length() as f64,
                 }
             } else {
                 Animation::Standing
