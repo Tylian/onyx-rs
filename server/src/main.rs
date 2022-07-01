@@ -6,7 +6,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use anyhow::{Result, bail, anyhow};
+use anyhow::{anyhow, bail, Result};
 use base64ct::{Base64, Encoding};
 use chrono::Utc;
 use common::{
@@ -327,13 +327,17 @@ impl GameServer {
                 velocity,
             } => {
                 let map_id = self.players.get(&client_id).unwrap().map;
-                let map = self.maps.get(&map_id).ok_or_else(|| anyhow!("couldn't get player's map"))?;
+                let map = self
+                    .maps
+                    .get(&map_id)
+                    .ok_or_else(|| anyhow!("couldn't get player's map"))?;
 
                 let valid = check_collision_with(
                     position.into(),
                     map.zones.iter().filter(|zone| zone.data == ZoneData::Blocked),
-                    |zone| Box2D::from_origin_and_size(zone.position.into(), zone.size.into())
-                ).is_none();
+                    |zone| Box2D::from_origin_and_size(zone.position.into(), zone.size.into()),
+                )
+                .is_none();
 
                 if valid {
                     let player = self.players.get_mut(&client_id).unwrap();
@@ -478,7 +482,7 @@ impl GameServer {
                 let offset = velocity * dt.as_secs_f32();
                 let new_position = player.position + offset;
                 let mut valid = true;
-                
+
                 // map bounds
                 if !player.flags.in_map_editor {
                     // map warps, lots of copy paste code lol
@@ -499,7 +503,6 @@ impl GameServer {
                                     ..Default::default()
                                 },
                             ));
-                            
                         }
 
                         valid = false;
@@ -511,14 +514,16 @@ impl GameServer {
                     valid &= check_collision_with(
                         player.position,
                         map.zones.iter().filter(|zone| zone.data == ZoneData::Blocked),
-                        |zone| Box2D::from_origin_and_size(zone.position.into(), zone.size.into())
-                    ).is_none();
+                        |zone| Box2D::from_origin_and_size(zone.position.into(), zone.size.into()),
+                    )
+                    .is_none();
 
                     valid &= check_collision_with(
                         player.position,
                         player_boxes.iter().filter(|(cid, _box2d)| cid != client_id),
-                        |(_cid, box2d)| *box2d
-                    ).is_none();
+                        |(_cid, box2d)| *box2d,
+                    )
+                    .is_none();
                 }
 
                 log::debug!("{valid}");
@@ -527,18 +532,20 @@ impl GameServer {
                     player.position = new_position;
                 }
             }
-            
+
             if !player.flags.in_map_editor {
                 let warp = check_collision_with(
                     player.position,
-                    map.zones.iter().filter(|zone| matches!(zone.data, ZoneData::Warp(_, _, _))),
-                    |zone| Box2D::from_origin_and_size(zone.position.into(), zone.size.into())
+                    map.zones
+                        .iter()
+                        .filter(|zone| matches!(zone.data, ZoneData::Warp(_, _, _))),
+                    |zone| Box2D::from_origin_and_size(zone.position.into(), zone.size.into()),
                 );
 
                 if let Some(warp) = warp {
                     let (map_id, position, direction) = match warp.data {
                         ZoneData::Warp(a, b, c) => (a, b, c),
-                        _ => unreachable!()
+                        _ => unreachable!(),
                     };
 
                     to_warp.push((
