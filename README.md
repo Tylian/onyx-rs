@@ -4,12 +4,12 @@ Onyx engine is an ambitious project of mine to create an online RPG engine, as w
 # Why?
 Back when I was younger, I always loved the idea of creating games collaboratively. Something akin to editing a document on a cloud editing platform, but instead of words you were creating worlds. The Mirage Source Engine and it's various deviations allowed you to do that. As I grew up, I always clung to the dream of reliving that feeling, but never really managed to get around to it, due to lack of knowledge on my part and the aging technology the old engines used.
 
-Now that I'm older, and have studied Rust quite a bit, I feel confident that I'll be able to recreate that experience with a more modern tech stack, and that is what's attempted here. 
+Now that I'm older, I've spent quite a bit of time practicing programming in various languages, as well as learning the various ways that games and their engines work. I've always loved game engines and have wanted to make my own, so I'm attempting to kill two birds with one stone: Make my younger self's dream come true, as well as scratch my itch for creating a game engine. This is what is attempted here.
 
 # What?
 Onyx Engine is meant to be a collaborative ORPG maker. The base idea is that the entire world can be edited live, while other players are exploring said world. Items can be created on the fly, maps can be edited, NPCs can be spawned and battled, all in the engine itself without external applications.
 
-This obviously poses some problems when it comes to the actual game content, therefor the gameplay loop and style shal be pretty rigid, and any sort of out of the box features will have to be implemented via scripting.
+This obviously poses some problems when it comes to the actual game content, therefor the gameplay loop and style is designed to be pretty rigid, and any sort of out of the box features will have to be implemented via scripting. The engine is designed from the ground up with this kind of limitation in mind.
 
 # Can I help?
 While I'm kind of doing this as a solo project (as evident by the commit log lmao), people are welcome to poke around the code and make suggestions. Do note however, that as mentioned below, I reserve all rights when it comes to contributions.
