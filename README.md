@@ -4,7 +4,7 @@ Onyx engine is an ambitious project of mine to create an online RPG engine, as w
 # Why?
 Back when I was younger, I always loved the idea of creating games collaboratively. Something akin to editing a document on a cloud editing platform, but instead of words you were creating worlds. The Mirage Source Engine and it's various deviations allowed you to do that. As I grew up, I always clung to the dream of reliving that feeling, but never really managed to get around to it, due to lack of knowledge on my part and the aging technology the old engines used.
 
-Now that I'm older, and have studied Rust quite a bit, I felt confident that I'd be able to recreate that experience with a more modern tech stack, and that is what's attempted here. 
+Now that I'm older, and have studied Rust quite a bit, I feel confident that I'll be able to recreate that experience with a more modern tech stack, and that is what's attempted here. 
 
 # What?
 Onyx Engine is meant to be a collaborative ORPG maker. The base idea is that the entire world can be edited live, while other players are exploring said world. Items can be created on the fly, maps can be edited, NPCs can be spawned and battled, all in the engine itself without external applications.
