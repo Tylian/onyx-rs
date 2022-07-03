@@ -1,7 +1,7 @@
 mod chat_window;
 mod map_editor;
 
-use egui::{Area, Shape, Rounding, Align2, Order, InnerResponse, Frame};
+use egui::{Area, Shape, Rounding, Align2, Order, InnerResponse, Frame, Resize};
 use egui::{popup_below_widget, Id, Image, Rect, Response, ScrollArea, Sense, TextureHandle, Ui};
 
 use common::SPRITE_SIZE;
@@ -33,11 +33,17 @@ pub fn dialog<R>(ctx: &egui::Context, add_contents: impl FnOnce(&mut egui::Ui) -
             ));
 
             Area::new("prompt_centered")
-                .fixed_pos(egui::Pos2::ZERO)
                 .anchor(Align2::CENTER_CENTER, egui::Vec2::splat(0.0))
                 .order(Order::Foreground)
                 .show(ctx, |ui| {
-                    Frame::window(ui.style()).show(ui, add_contents).inner
+                    Frame::popup(ui.style()).show(ui, |ui| {
+                        Resize::default()
+                            .auto_sized()
+                            .with_stroke(false)
+                            .min_size([96.0, 32.0])
+                            .default_size([340.0, 420.0])
+                            .show(ui, add_contents)
+                    }).inner
                 }).inner
         })
 }

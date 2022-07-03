@@ -74,7 +74,7 @@ impl Assets {
         let music_list = Assets::load_music_list().await?;
 
         // unwrap: Assets::load_tilesets ensures that at least "default.png" always exists
-        let tileset = DualTexture::from_image("default.png", tilesets.get("default.png").unwrap());
+        let tileset = DualTexture::from_image("default.png", &tilesets["default.png"]);
         let (stream, stream_handle) = OutputStream::try_default()?;
 
         Ok(Self {
@@ -121,14 +121,12 @@ impl Assets {
     }
 
     pub fn set_tileset(&self, name: &str) -> Result<()> {
-        if let Some(image) = self.tilesets.get(name) {
-            if self.tileset.borrow().name != name {
-                self.tileset.replace(DualTexture::from_image(name, image));
-            }
-            Ok(())
-        } else {
-            Err(anyhow!("not found"))
+        let image = self.tilesets.get(name)
+            .ok_or_else(|| anyhow!("texture {name} not found"))?;
+        if self.tileset.borrow().name != name {
+            self.tileset.replace(DualTexture::from_image(name, image));
         }
+        Ok(())
     }
 
     pub fn get_music(&self) -> Vec<String> {

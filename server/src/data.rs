@@ -4,7 +4,8 @@ mod player;
 use std::{collections::HashSet, path::PathBuf};
 
 use anyhow::Result;
-use common::network::MapId;
+use common::network::MapHash;
+use euclid::default::Point2D;
 use serde::{Deserialize, Serialize};
 
 pub use self::map::*;
@@ -33,7 +34,17 @@ impl Config {
 pub struct Start {
     pub x: f32,
     pub y: f32,
-    pub map: MapId,
+    pub map: String,
+}
+
+impl Start {
+    /// Convencience function to get the hash of the starting map
+    pub fn hash(&self) -> MapHash {
+        MapHash::from(&*self.map)
+    }
+    pub fn position(&self) -> Point2D<f32> {
+        Point2D::new(self.x, self.y)
+    }
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]

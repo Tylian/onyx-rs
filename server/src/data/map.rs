@@ -5,7 +5,7 @@ use std::{
 
 use anyhow::Result;
 use common::{
-    network::{Map as NetworkMap, MapId, MapLayer, MapSettings, Tile, Zone},
+    network::{Map as NetworkMap, MapHash, MapLayer, MapSettings, Tile, Zone},
     TILE_SIZE,
 };
 use euclid::default::Box2D;
@@ -15,7 +15,10 @@ use strum::IntoEnumIterator;
 
 #[derive(Default, Clone, Serialize, Deserialize, PartialEq, Debug)]
 pub struct Map {
-    pub id: MapId,
+    #[serde(alias = "id")]
+    pub hash: MapHash,
+    #[serde(skip)]
+    pub id: String,
     pub width: u32,
     pub height: u32,
     pub settings: MapSettings,
@@ -24,19 +27,19 @@ pub struct Map {
 }
 
 impl Map {
-    pub fn path(id: MapId) -> PathBuf {
+    pub fn path(id: &str) -> PathBuf {
         let mut path = common::server_runtime!();
         path.push("maps");
-        path.push(format!("{}.bin", id.0));
+        path.push(format!("{}.bin", id));
         path
     }
 
-    pub fn load(id: MapId) -> Result<Self> {
+    pub fn load(id: &str) -> Result<Self> {
         let path = Self::path(id);
         Self::load_path(path)
     }
 
-    pub fn load_all() -> Result<HashMap<MapId, Self>> {
+    pub fn load_all() -> Result<HashMap<MapHash, Self>> {
         let mut path = common::server_runtime!();
         path.push("maps");
 
@@ -45,18 +48,24 @@ impl Map {
             let entry = entry?;
             let path = entry.path();
             if path.is_file() {
-                let map = Self::load_path(&path)?;
+                let mut map = Self::load_path(&path)?;
+                let id = path.file_stem().unwrap().to_string_lossy();
+                let hash = MapHash::from(&*id);
 
-                #[cfg(debug_assertions)]
-                if path.file_name().and_then(std::ffi::OsStr::to_str) != Some(&format!("{}.bin", map.id.0)) {
+                if map.hash != hash {
                     log::warn!(
-                        "Map loaded but the name didn't match it's id: {:?} {}",
-                        map.id,
-                        path.display()
+                        "Map loaded but the file name didn't match it's hash: {:#x} {:#x}",
+                        map.hash.0,
+                        hash.0
                     );
+
+                    if cfg!(debug_assertions) {
+                        log::debug!("Updating the map's hash to match the file path, this may break warps.");
+                        map.hash = hash;
+                    }
                 }
 
-                maps.insert(map.id, map);
+                maps.insert(map.hash, map);
             }
         }
 
@@ -70,17 +79,19 @@ impl Map {
         Ok(map)
     }
 
-    pub fn new(id: MapId, width: u32, height: u32) -> Self {
+    pub fn new(id: &str, width: u32, height: u32) -> Self {
         let settings = MapSettings::default();
         let mut layers = HashMap::new();
         let zones = Vec::new();
+        let hash = MapHash::from(id);
 
         for layer in MapLayer::iter() {
             layers.insert(layer, Array2::default((width as usize, height as usize)));
         }
 
         Self {
-            id,
+            id: id.to_string(),
+            hash,
             width,
             height,
             settings,
@@ -90,7 +101,7 @@ impl Map {
     }
 
     pub fn save(&self) -> Result<()> {
-        let path = Self::path(self.id);
+        let path = Self::path(&self.id);
 
         let map = self.clone();
         let contents = rmp_serde::to_vec_named(&map)?;
@@ -117,6 +128,7 @@ impl From<NetworkMap> for Map {
     fn from(other: NetworkMap) -> Self {
         Self {
             id: other.id,
+            hash: other.hash,
             width: other.width,
             height: other.height,
             settings: other.settings,
@@ -130,6 +142,7 @@ impl From<Map> for NetworkMap {
     fn from(other: Map) -> Self {
         Self {
             id: other.id,
+            hash: other.hash,
             width: other.width,
             height: other.height,
             settings: other.settings,

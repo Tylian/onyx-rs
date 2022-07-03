@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use anyhow::Result;
-use common::network::{Map as NetworkMap, MapId, MapLayer, MapSettings, TileAnimation, ZoneData};
+use common::network::{Map as NetworkMap, MapHash, MapLayer, MapSettings, TileAnimation, ZoneData};
 use common::TILE_SIZE;
 use macroquad::prelude::*;
 use ndarray::{azip, indices, Array2, Zip};
@@ -234,7 +234,8 @@ impl Zone {
 
 #[derive(Clone)]
 pub struct Map {
-    pub id: MapId,
+    pub id: String,
+    pub hash: MapHash,
     pub width: u32,
     pub height: u32,
     pub settings: MapSettings,
@@ -244,15 +245,15 @@ pub struct Map {
 }
 
 impl Map {
-    pub fn cache_path(id: MapId) -> PathBuf {
+    pub fn cache_path(hash: MapHash) -> PathBuf {
         let mut path = common::client_runtime!();
         path.push("maps");
-        path.push(format!("{}.bin", id.0));
+        path.push(format!("{:x}.bin", hash.0));
         path
     }
 
-    pub fn from_cache(id: MapId) -> Result<Self> {
-        let path = Self::cache_path(id);
+    pub fn from_cache(hash: MapHash) -> Result<Self> {
+        let path = Self::cache_path(hash);
         let file = std::fs::File::open(path)?;
         let map: NetworkMap = rmp_serde::from_read(file)?;
 
@@ -262,17 +263,18 @@ impl Map {
     pub fn save_cache(&self) -> Result<()> {
         let map = NetworkMap::from(self.clone());
         let bytes = rmp_serde::to_vec_named(&map)?;
-        let path = Self::cache_path(self.id);
+        let path = Self::cache_path(self.hash);
         std::fs::write(path, bytes)?;
 
         Ok(())
     }
 
-    pub fn new(id: MapId, width: u32, height: u32) -> Self {
+    pub fn new(id: &str, width: u32, height: u32) -> Self {
         let settings = MapSettings::default();
         let mut layers = HashMap::new();
         let mut autotiles = HashMap::new();
         let zones = Vec::new();
+        let hash = MapHash::from(id);
 
         for layer in MapLayer::iter() {
             layers.insert(layer, Array2::default((width as usize, height as usize)));
@@ -280,7 +282,8 @@ impl Map {
         }
 
         Self {
-            id,
+            id: id.to_string(),
+            hash,
             width,
             height,
             settings,
@@ -306,9 +309,7 @@ impl Map {
     }
 
     pub fn tile(&self, layer: MapLayer, position: IVec2) -> Option<&Tile> {
-        self.layers
-            .get(&layer)
-            .unwrap()
+        self.layers[&layer]
             .get((position.x as usize, position.y as usize))
             .and_then(Option::as_ref)
     }
@@ -344,8 +345,8 @@ impl Map {
     }
 
     pub fn draw_layer(&self, layer: MapLayer, time: f64, assets: &Assets) {
-        let layers = self.layers.get(&layer).unwrap();
-        let autotiles = self.autotiles.get(&layer).unwrap();
+        let layers = &self.layers[&layer];
+        let autotiles = &self.autotiles[&layer];
         azip!((index (x, y), tile in layers, autotile in autotiles) {
             let position = ivec2(x as i32, y as i32);
             let screen_position = position.as_f32() * TILE_SIZE as f32;
@@ -408,16 +409,14 @@ impl Map {
         }
     }
 
-    pub fn resize(&self, width: u32, height: u32) -> Map {
+    pub fn resize(&mut self, width: u32, height: u32) {
         let dimensions = (width as usize, height as usize);
         let mut layers = HashMap::with_capacity(MapLayer::COUNT);
-        let mut autotiles = HashMap::with_capacity(MapLayer::COUNT);
 
         for layer in MapLayer::iter() {
             let tiles = Zip::from(indices(dimensions))
-                .map_collect(|index| self.layers.get(&layer).and_then(|f| f.get(index).copied()).flatten());
+                .map_collect(|index| self.layers[&layer][index]);
             layers.insert(layer, tiles);
-            autotiles.insert(layer, Array2::default(dimensions));
         }
 
         let map_rect = Rect::new(
@@ -426,23 +425,13 @@ impl Map {
             width as f32 * TILE_SIZE as f32,
             height as f32 * TILE_SIZE as f32,
         );
-        let zones = self
-            .zones
-            .iter()
-            .cloned()
-            .filter(|attrib| map_rect.overlaps(&attrib.position))
-            .collect();
 
-        let mut map = Map {
-            id: self.id,
-            width,
-            height,
-            settings: self.settings.clone(),
-            layers,
-            autotiles,
-            zones,
-        };
-        map.update_autotile_cache();
-        map
+        self.zones.retain(|zone| map_rect.overlaps(&zone.position));
+
+        self.width = width;
+        self.height = height;
+        self.layers = layers;
+
+        self.update_autotile_cache();
     }
 }

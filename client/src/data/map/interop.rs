@@ -38,6 +38,7 @@ impl TryFrom<NetworkMap> for Map {
 
         let mut map = Self {
             id: other.id,
+            hash: other.hash,
             width: other.width,
             height: other.height,
             settings: other.settings,
@@ -65,6 +66,7 @@ impl From<Map> for NetworkMap {
 
         Self {
             id: other.id,
+            hash: other.hash,
             width: other.width,
             height: other.height,
             settings: other.settings,

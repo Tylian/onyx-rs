@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use common::{
-    network::{ChatChannel, ClientId, ClientMessage, Direction, MapId, MapLayer, ServerMessage, ZoneData},
+    network::{ChatChannel, ClientId, client::Packet, server::Packet as ServerPacket, Direction, MapLayer, ZoneData},
     RUN_SPEED, SPRITE_SIZE, TILE_SIZE, WALK_SPEED,
 };
 use glam::{vec2, IVec2, Vec2};
@@ -62,7 +62,7 @@ impl State {
             network,
             players: HashMap::default(),
             local_player: client_id,
-            map: Map::new(MapId(0), 20, 15),
+            map: Map::new("start", 20, 15),
             ui: UiState::default(),
             last_movement: None,
             start_time: get_time(),
@@ -79,11 +79,11 @@ impl State {
 
     fn process_message(&mut self, channel: ChatChannel, text: String) {
         if text.starts_with("/pos") {
-            let position = self.players.get(&self.local_player).unwrap().position;
+            let position = self.players[&self.local_player].position;
             let message = format!("Your position is x: {} y: {}", position.x, position.y);
             self.ui.chat_window.insert(ChatChannel::Echo, message);
         } else {
-            self.network.send(&ClientMessage::Message(channel, text));
+            self.network.send(&Packet::ChatMessage(channel, text));
         }
     }
 
@@ -207,22 +207,22 @@ impl State {
             None => (),
             Some(Wants::Save) => {
                 let (id, settings) = self.ui.map_editor.map_settings();
-                self.map.id = id;
+                self.map.id = id.to_string();
                 self.map.settings = settings.clone();
 
                 let data = Box::new(self.map.clone().into());
-                self.network.send(&ClientMessage::SaveMap(data));
-                self.network.send(&ClientMessage::MapEditor(false));
+                self.network.send(&Packet::SaveMap(data));
+                self.network.send(&Packet::MapEditor(false));
             }
             Some(Wants::Close) => {
-                self.network.send(&ClientMessage::MapEditor(false));
-                self.network.send(&ClientMessage::RequestMap);
+                self.network.send(&Packet::MapEditor(false));
+                self.network.send(&Packet::RequestMap);
             }
             Some(Wants::Resize(width, height)) => {
-                self.map = self.map.resize(width, height);
+                self.map.resize(width, height);
             }
             Some(Wants::Warp(id)) => {
-                self.network.send(&ClientMessage::Warp(id, None));
+                self.network.send(&Packet::Warp(id, None));
             }
             Some(Wants::Fill(layer, tile)) => {
                 self.map.fill(layer, tile);
@@ -232,9 +232,9 @@ impl State {
         if self.ui.map_editor_shown {
             for zone in &self.map.zones {
                 if zone.position.contains(mouse_position) {
-                    if let ZoneData::Warp(map_id, position, direction) = zone.data {
+                    if let ZoneData::Warp(map_id, position, direction) = &zone.data {
                         egui::show_tooltip_at_pointer(ctx, egui::Id::new("zone_tooltip"), |ui| {
-                            ui.label(format!("Warp to: map #{}", map_id.0));
+                            ui.label(format!("Warp to: {map_id}"));
                             ui.label(format!("x: {} y: {}", position.x, position.y));
                             if let Some(direction) = direction {
                                 ui.label(format!("Stops movement, faces {}", direction));
@@ -298,7 +298,7 @@ impl State {
                     None
                 };
 
-                self.network.send(&ClientMessage::Move {
+                self.network.send(&Packet::Move {
                     position: player.position.into(),
                     direction: player.direction,
                     velocity,
@@ -308,7 +308,7 @@ impl State {
 
         // Admin
         if is_key_pressed(KeyCode::F1) {
-            self.network.send(&ClientMessage::MapEditor(true));
+            self.network.send(&Packet::MapEditor(true));
         }
     }
 
@@ -476,11 +476,9 @@ impl State {
         }
     }
 
-    fn handle_message(&mut self, message: ServerMessage) {
-        use ServerMessage::*;
-
+    fn handle_message(&mut self, message: ServerPacket) {
         match &message {
-            MapData(_) => log::debug!("MapData(..)"),
+            ServerPacket::MapData(_) => log::debug!("MapData(..)"),
             message => {
                 log::debug!("{message:?}");
             }
@@ -488,19 +486,19 @@ impl State {
 
         let time = self.time;
         match message {
-            JoinGame(_) | FailedJoin(_) => unreachable!(),
+            ServerPacket::JoinGame(_) | ServerPacket::FailedJoin(_) => unreachable!(),
 
-            PlayerJoined(id, player_data) => {
+            ServerPacket::PlayerJoined(id, player_data) => {
                 self.players
                     .insert(id, Player::from_network(id, player_data, self.time));
             }
-            PlayerLeft(id) => {
+            ServerPacket::PlayerLeft(id) => {
                 self.players.remove(&id);
             }
-            Message(channel, message) => {
+            ServerPacket::ChatLog(channel, message) => {
                 self.ui.chat_window.insert(channel, message);
             }
-            ChangeMap(id, cache_id) => {
+            ServerPacket::ChangeMap(id, cache_id) => {
                 self.players.clear();
                 self.ui.map_editor_shown = false;
 
@@ -512,13 +510,13 @@ impl State {
 
                 if needs_map {
                     log::debug!("Requesting map..");
-                    self.network.send(&ClientMessage::RequestMap);
+                    self.network.send(&Packet::RequestMap);
                 } else {
                     log::debug!("Loading map from");
                     self.change_map(map.unwrap());
                 }
             }
-            PlayerMove {
+            ServerPacket::PlayerMove {
                 client_id,
                 position,
                 direction,
@@ -541,11 +539,11 @@ impl State {
                     }
                 }
             }
-            MapData(remote) => {
+            ServerPacket::MapData(remote) => {
                 let map = Map::try_from(*remote).unwrap();
                 self.change_map(map);
             }
-            MapEditor {
+            ServerPacket::MapEditor {
                 id,
                 width,
                 height,
@@ -556,15 +554,13 @@ impl State {
                     maps,
                     width,
                     height,
-                    id,
+                    &*id,
                     settings,
                 );
                 self.ui.map_editor_shown = true;
             }
-            Flags(client_id, flags) => {
-                if let Some(player) = self.players.get_mut(&client_id) {
-                    player.flags = flags;
-                }
+            ServerPacket::Flags(client_id, flags) => {
+                self.players.get_mut(&client_id).unwrap().flags = flags;
             }
         }
     }

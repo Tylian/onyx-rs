@@ -4,6 +4,10 @@ use mint::{Point2, Vector2};
 use ndarray::Array2;
 use serde::{Deserialize, Serialize};
 use strum::{EnumCount, EnumIter, IntoEnumIterator};
+use crc::{Crc, CRC_32_CKSUM};
+
+pub mod client;
+pub mod server;
 
 #[derive(Serialize, Deserialize, PartialEq, Debug, Eq, Hash, Clone, Copy)]
 #[serde(transparent)]
@@ -12,71 +16,6 @@ pub struct ClientId(pub u64);
 impl From<u64> for ClientId {
     fn from(id: u64) -> Self {
         Self(id)
-    }
-}
-
-#[derive(Clone, Serialize, Deserialize, PartialEq, Debug)]
-pub enum ClientMessage {
-    CreateAccount {
-        username: String,
-        password: String,
-        character_name: String,
-    },
-    Login {
-        username: String,
-        password: String,
-    },
-    Move {
-        position: Point2<f32>,
-        direction: Direction,
-        velocity: Option<Vector2<f32>>,
-    },
-    Message(ChatChannel, String),
-    RequestMap,
-    SaveMap(Box<Map>),
-    Warp(MapId, Option<Point2<f32>>),
-    MapEditor(bool),
-}
-
-#[derive(Clone, Serialize, Deserialize, PartialEq, Debug)]
-pub enum ServerMessage {
-    JoinGame(ClientId),
-    FailedJoin(FailJoinReason),
-    PlayerJoined(ClientId, Player),
-    PlayerLeft(ClientId),
-    PlayerMove {
-        client_id: ClientId,
-        position: Point2<f32>,
-        direction: Direction,
-        velocity: Option<Vector2<f32>>,
-    },
-    Message(ChatChannel, String),
-    ChangeMap(MapId, i64),
-    MapData(Box<Map>),
-    MapEditor {
-        maps: HashMap<MapId, String>,
-        id: MapId,
-        width: u32,
-        height: u32,
-        settings: MapSettings,
-    },
-    Flags(ClientId, PlayerFlags),
-}
-
-#[derive(Copy, Clone, Serialize, Deserialize, PartialEq, Debug)]
-pub enum FailJoinReason {
-    UsernameTaken,
-    CharacterNameTaken,
-    LoginIncorrect,
-}
-
-impl Display for FailJoinReason {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            FailJoinReason::UsernameTaken => write!(f, "username is taken"),
-            FailJoinReason::CharacterNameTaken => write!(f, "character name is taken"),
-            FailJoinReason::LoginIncorrect => write!(f, "username/password is incorrect"),
-        }
     }
 }
 
@@ -194,26 +133,29 @@ impl Display for MapLayer {
     }
 }
 
+const CKSUM: Crc<u32> = Crc::<u32>::new(&CRC_32_CKSUM);
+
 #[derive(Default, Serialize, Deserialize, PartialEq, Debug, Eq, Hash, Clone, Copy)]
 #[serde(transparent)]
-pub struct MapId(pub u64);
+pub struct MapHash(pub u32);
 
-impl From<u64> for MapId {
-    fn from(id: u64) -> Self {
-        Self(id)
+impl From<&str> for MapHash {
+    fn from(id: &str) -> Self {
+        Self(CKSUM.checksum(id.as_bytes()))
     }
 }
 
-impl MapId {
+impl MapHash {
     /// Returns the special, must always exist map
-    pub fn start() -> MapId {
-        MapId(0)
+    pub fn start() -> MapHash {
+        "start".into()
     }
 }
 
 #[derive(Default, Clone, Serialize, Deserialize, PartialEq, Debug)]
 pub struct Map {
-    pub id: MapId,
+    pub id: String,
+    pub hash: MapHash,
     pub width: u32,
     pub height: u32,
     pub settings: MapSettings,
@@ -222,17 +164,19 @@ pub struct Map {
 }
 
 impl Map {
-    pub fn new(id: MapId, width: u32, height: u32) -> Self {
+    pub fn new(id: &str, width: u32, height: u32) -> Self {
         let settings = MapSettings::default();
         let mut layers = HashMap::new();
         let zones = Vec::new();
+        let hash = MapHash::from(id);
 
         for layer in MapLayer::iter() {
             layers.insert(layer, Array2::default((width as usize, height as usize)));
         }
 
         Self {
-            id,
+            id: id.to_string(),
+            hash,
             width,
             height,
             settings,
@@ -265,14 +209,14 @@ impl Default for MapSettings {
 
 #[derive(Default, Clone, Serialize, Deserialize, PartialEq, Debug)]
 pub struct BoundryWarps {
-    pub north: Option<MapId>,
-    pub east: Option<MapId>,
-    pub south: Option<MapId>,
-    pub west: Option<MapId>,
+    pub north: Option<String>,
+    pub east: Option<String>,
+    pub south: Option<String>,
+    pub west: Option<String>,
 }
 
 impl BoundryWarps {
-    pub fn iter(&self) -> impl Iterator<Item = (Direction, Option<&MapId>)> {
+    pub fn iter(&self) -> impl Iterator<Item = (Direction, Option<&String>)> {
         let vec = vec![
             (Direction::North, self.north.as_ref()),
             (Direction::East, self.east.as_ref()),
@@ -310,7 +254,7 @@ impl TileAnimation {
 #[derive(Clone, Serialize, Deserialize, PartialEq, Debug)]
 pub enum ZoneData {
     Blocked,
-    Warp(MapId, Point2<f32>, Option<Direction>),
+    Warp(String, Point2<f32>, Option<Direction>),
 }
 
 impl ZoneData {

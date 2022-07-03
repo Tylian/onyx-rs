@@ -5,8 +5,5 @@ members = [
     "common"
 ]
 
-[profile.dev.package.'*']
-opt-level = 3
-
 [patch.crates-io]
 egui-miniquad = { git = "https://github.com/not-fl3/egui-miniquad" }

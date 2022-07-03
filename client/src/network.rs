@@ -1,4 +1,4 @@
-use common::network::ClientMessage;
+use common::network::client::Packet;
 use message_io::{
     events::EventReceiver,
     network::{Endpoint, ToRemoteAddr, Transport},
@@ -26,7 +26,7 @@ impl Network {
         self.receive.try_receive()
     }
 
-    pub fn send(&self, message: &ClientMessage) {
+    pub fn send(&self, message: &Packet) {
         let bytes = rmp_serde::to_vec(message).unwrap();
         self.handler.network().send(self.endpoint, &bytes);
     }
