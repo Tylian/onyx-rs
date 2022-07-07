@@ -7,8 +7,6 @@ edition = "2021"
 
 [dependencies]
 serde = { version = "1.0.136", features = ["derive"] }
-message-io = { version = "0.14.5", default_features = false, features = ["tcp"] }
-glam = { version = "0.14.0", features = ["mint", "serde"] }
 mint = { version = "0.5.9", features = ["serde"] }
 strum = { version = "0.24.1", features = ["derive"] }
 ndarray = { version = "0.15.4", features = ["serde"] }

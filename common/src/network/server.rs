@@ -1,16 +1,16 @@
-use std::{fmt::Display, collections::HashMap};
+use std::{collections::HashMap, fmt::Display};
 
 use mint::{Point2, Vector2};
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
-use super::{Player, ClientId, ChatChannel, Direction, Map, MapHash, MapSettings, PlayerFlags};
+use super::{ChatChannel, ClientId, Direction, Map, MapHash, MapSettings, Player, PlayerFlags};
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Debug)]
 pub enum Packet {
     JoinGame(ClientId),
     FailedJoin(FailJoinReason),
-    PlayerJoined(ClientId, Player),
-    PlayerLeft(ClientId),
+    PlayerData(ClientId, Player),
+    RemoveData(ClientId),
     PlayerMove {
         client_id: ClientId,
         position: Point2<f32>,

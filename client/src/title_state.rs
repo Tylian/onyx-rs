@@ -1,8 +1,8 @@
 use std::{path::PathBuf, rc::Rc};
 
 use anyhow::Result;
-use common::network::{ClientId, client::Packet};
-use egui::{Color32, Layout};
+use common::network::{client::Packet, ClientId};
+use egui::Color32;
 use macroquad::{color, prelude::*};
 use message_io::node::StoredNetEvent;
 use serde::{Deserialize, Serialize};
@@ -57,7 +57,7 @@ struct UiState {
     loading: bool,
     error: Option<String>,
     tab: UiTab,
-    dialog: Option<String>
+    dialog: Option<String>,
 }
 
 #[derive(Copy, Clone, PartialEq)]
@@ -67,7 +67,7 @@ enum UiTab {
 }
 
 fn draw_login(ui: &mut egui::Ui, state: &mut UiState, _assets: &Assets) {
-    use egui::{Color32, Grid, TextEdit};
+    use egui::{Grid, TextEdit};
 
     Grid::new("login").num_columns(2).show(ui, |ui| {
         ui.label("Username:");
@@ -102,7 +102,7 @@ fn draw_login(ui: &mut egui::Ui, state: &mut UiState, _assets: &Assets) {
 }
 
 fn draw_create(ui: &mut egui::Ui, state: &mut UiState, _assets: &Assets) {
-    use egui::{Color32, Grid, TextEdit};
+    use egui::{Grid, TextEdit};
 
     Grid::new("create").num_columns(2).show(ui, |ui| {
         ui.label("Username:");
@@ -178,13 +178,13 @@ fn draw_ui(ctx: &egui::Context, state: &mut UiState, assets: &Assets) {
                         state.dialog = None;
                     }
                 });
-            
+
                 ui.scope(|ui| {
                     let bg_fill = Color32::DARK_RED;
                     ui.visuals_mut().widgets.inactive.bg_fill = bg_fill;
                     ui.visuals_mut().widgets.active.bg_fill = bg_fill;
                     ui.visuals_mut().widgets.hovered.bg_fill = bg_fill;
-    
+
                     if ui.button("No???").clicked() {
                         state.dialog = None;
                     }
@@ -214,12 +214,17 @@ pub async fn run(assets: Rc<Assets>) -> (ClientId, Network) {
     };
 
     loop {
-        // network
         if let Some(event) = state.network.try_receive() {
             use common::network::server::Packet;
             match event.network() {
-                StoredNetEvent::Connected(_, _) => {
-                    state.loading = false;
+                StoredNetEvent::Connected(_, ok) => {
+                    if ok {
+                        state.loading = false;
+                    } else {
+                        state.error = Some(String::from("could not connect"));
+                        state.network.stop();
+                        state.network = Network::connect(&settings.address);
+                    }
                 }
                 StoredNetEvent::Accepted(_, _) => unreachable!(),
                 StoredNetEvent::Message(_, bytes) => {
@@ -231,7 +236,7 @@ pub async fn run(assets: Rc<Assets>) -> (ClientId, Network) {
                             let settings = Settings {
                                 address: settings.address,
                                 username: state.username,
-                                password: state.save_password.then(|| state.password),
+                                password: state.save_password.then_some(state.password),
                             };
 
                             if let Err(e) = settings.save() {
@@ -249,6 +254,7 @@ pub async fn run(assets: Rc<Assets>) -> (ClientId, Network) {
                 }
                 StoredNetEvent::Disconnected(_) => {
                     state.loading = true;
+                    state.network.stop();
                     state.network = Network::connect(&settings.address);
                 }
             }

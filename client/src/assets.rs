@@ -1,7 +1,6 @@
 use std::{
     cell::{Ref, RefCell},
     collections::HashMap,
-    ffi::OsStr,
     fs::File,
     io::BufReader,
     path::{Path, PathBuf},
@@ -91,24 +90,23 @@ impl Assets {
 
     async fn load_tilesets() -> Result<HashMap<String, Image>> {
         let mut tilesets = HashMap::new();
-        for entry in std::fs::read_dir(Self::asset_path("tilesets"))? {
+
+        for entry in globwalk::glob("assets/tilesets/**/*.png")? {
             let entry = entry?;
             let path = entry.path();
-            if path.is_file() && path.extension().and_then(OsStr::to_str) == Some("png") {
-                log::debug!("Loading tileset {}", path.display());
-                let image = load_image(&path.to_string_lossy()).await?;
-                let name = path.file_name().unwrap().to_string_lossy();
-                tilesets.insert(name.to_string(), image);
-            }
+            log::debug!("Loading tileset {}", path.display());
+            let image = load_image(&path.to_string_lossy()).await?;
+            let name = path.file_name().unwrap().to_string_lossy();
+            tilesets.insert(name.to_string(), image);
         }
 
         if !tilesets.contains_key("default.png") {
             return Err(anyhow!(
                 "the file \"{}\" does not exist, but it is required to exist",
                 Self::asset_path("tilesets/default.png").display()
-            ))
+            ));
         }
-        
+
         Ok(tilesets)
     }
 
@@ -121,7 +119,9 @@ impl Assets {
     }
 
     pub fn set_tileset(&self, name: &str) -> Result<()> {
-        let image = self.tilesets.get(name)
+        let image = self
+            .tilesets
+            .get(name)
             .ok_or_else(|| anyhow!("texture {name} not found"))?;
         if self.tileset.borrow().name != name {
             self.tileset.replace(DualTexture::from_image(name, image));
@@ -134,15 +134,26 @@ impl Assets {
     }
 
     async fn load_music_list() -> Result<Vec<String>> {
-        let mut music = Vec::new();
-        for entry in std::fs::read_dir(Self::asset_path("music"))? {
-            let entry = entry?;
-            let path = entry.path();
-            if path.is_file() {
-                let name = path.file_name().unwrap().to_string_lossy();
-                music.push(name.to_string());
-            }
-        }
+        let prefix = PathBuf::from("./assets/music");
+        let music = globwalk::glob("assets/music/**/*.{mp3,ogg}")?
+            .into_iter()
+            .filter_map(Result::ok)
+            .map(|e| e.into_path())
+            .map(|p| p.strip_prefix(&prefix).unwrap().to_path_buf())
+            .map(|p| p.to_string_lossy().to_string())
+            .collect::<Vec<_>>();
+
+        log::debug!("{music:?}");
+
+        // let mut music = Vec::new();
+        // for entry in std::fs::read_dir(Self::asset_path("music"))? {
+        //     let entry = entry?;
+        //     let path = entry.path();
+        //     if path.is_file() {
+        //         let name = path.file_name().unwrap().to_string_lossy();
+        //         music.push(name.to_string());
+        //     }
+        // }
 
         Ok(music)
     }

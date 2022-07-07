@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use common::network::{Direction, MapHash, Player as NetworkPlayer, PlayerFlags};
 use euclid::default::{Point2D, Vector2D};
 use serde::{Deserialize, Serialize};
@@ -16,7 +16,7 @@ pub struct Player {
     pub direction: Direction,
     #[serde(skip)]
     pub velocity: Option<Vector2D<f32>>,
-    
+
     #[serde(skip)]
     pub flags: PlayerFlags,
 }

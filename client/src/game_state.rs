@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use common::{
-    network::{ChatChannel, ClientId, client::Packet, server::Packet as ServerPacket, Direction, MapLayer, ZoneData},
+    network::{client::Packet, server::Packet as ServerPacket, ChatChannel, ClientId, Direction, MapLayer, ZoneData},
     RUN_SPEED, SPRITE_SIZE, TILE_SIZE, WALK_SPEED,
 };
 use glam::{vec2, IVec2, Vec2};
@@ -252,7 +252,7 @@ impl State {
         if !self.ui.block_keyboard {
             self.update_keyboard();
         }
-        if !self.ui.block_pointer { 
+        if !self.ui.block_pointer {
             self.update_pointer();
         }
     }
@@ -313,7 +313,6 @@ impl State {
     }
 
     fn update_pointer(&mut self) {
-
         // Map editor
         if self.ui.map_editor_shown {
             match self.ui.map_editor.tab() {
@@ -488,11 +487,11 @@ impl State {
         match message {
             ServerPacket::JoinGame(_) | ServerPacket::FailedJoin(_) => unreachable!(),
 
-            ServerPacket::PlayerJoined(id, player_data) => {
+            ServerPacket::PlayerData(id, player_data) => {
                 self.players
                     .insert(id, Player::from_network(id, player_data, self.time));
             }
-            ServerPacket::PlayerLeft(id) => {
+            ServerPacket::RemoveData(id) => {
                 self.players.remove(&id);
             }
             ServerPacket::ChatLog(channel, message) => {
@@ -550,13 +549,7 @@ impl State {
                 settings,
                 maps,
             } => {
-                self.ui.map_editor.update(
-                    maps,
-                    width,
-                    height,
-                    &*id,
-                    settings,
-                );
+                self.ui.map_editor.update(maps, width, height, &*id, settings);
                 self.ui.map_editor_shown = true;
             }
             ServerPacket::Flags(client_id, flags) => {

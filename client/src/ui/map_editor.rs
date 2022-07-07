@@ -1,17 +1,15 @@
-use std::collections::{HashMap, BTreeMap};
+use std::collections::{BTreeMap, HashMap};
 
 use common::{
-    network::{MapHash, MapLayer, MapSettings, TileAnimation, ZoneData},
+    network::{MapLayer, MapSettings, TileAnimation, ZoneData},
     TILE_SIZE,
 };
-use egui::{
-    collapsing_header::CollapsingState, menu, Color32, DragValue, Grid, Response, RichText, Ui, WidgetText, Window, TextEdit, Checkbox,
-};
+use egui::{collapsing_header::CollapsingState, menu, Color32, DragValue, Grid, Response, TextEdit, Ui, Window};
 use strum::IntoEnumIterator;
 
 use crate::{assets::Assets, data::Tile};
 
-use super::{tile_selector, auto_complete};
+use super::{auto_complete, tile_selector};
 
 pub fn zone_radio(ui: &mut Ui, selected: bool, title: &str, description: &str) -> Response {
     ui.radio(selected, title).on_hover_ui(|ui| {
@@ -23,7 +21,7 @@ pub fn zone_radio(ui: &mut Ui, selected: bool, title: &str, description: &str) -
 fn map_option_selector(ui: &mut Ui, id: &str, value: &mut Option<String>, maps: &BTreeMap<String, String>) {
     let selected_label = match value {
         Some(id) => format!("{} ({})", maps[id], id),
-        None => String::from("Disabled")
+        None => String::from("Disabled"),
     };
 
     egui::ComboBox::from_id_source(id)
@@ -134,7 +132,7 @@ impl MapEditor {
             new_width: 0,
             new_height: 0,
 
-            selected_map: String::from("error")
+            selected_map: String::from("error"),
         }
     }
 
@@ -144,14 +142,7 @@ impl MapEditor {
         }
     }
 
-    pub fn update(
-        &mut self,
-        maps: HashMap<String, String>,
-        width: u32,
-        height: u32,
-        id: &str,
-        settings: MapSettings,
-    ) {
+    pub fn update(&mut self, maps: HashMap<String, String>, width: u32, height: u32, id: &str, settings: MapSettings) {
         self.new_width = width;
         self.new_height = height;
         self.id = id.to_string();

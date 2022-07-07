@@ -1,7 +1,7 @@
 use mint::{Point2, Vector2};
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
-use super::{Direction, ChatChannel, Map};
+use super::{ChatChannel, Direction, Map};
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Debug)]
 pub enum Packet {

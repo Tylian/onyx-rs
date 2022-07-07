@@ -7,19 +7,18 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0.58"
-bimap = "0.6.2"
+base64ct = { version = "1.5.1", features = ["alloc"] }
+chrono = { version = "0.4.19", default-features = false, features = ["std", "clock"] }
+common = { package = "onyx-common", path = "../common" }
+env_logger = "0.9.0"
 euclid = { version = "0.22.7", features = ["mint", "serde"] }
 log = "0.4.17"
 message-io = { version = "0.14.5", default_features = false, features = ["tcp"] }
 mint = { version = "0.5.9", features = ["serde"] }
-common = { package = "onyx-common", path = "../common" }
-serde = "1.0.137"
-toml = "0.5.9"
-sha2 = "0.10.2"
-base64ct = { version = "1.5.1", features = ["alloc"] }
 ndarray = { version = "0.15.4", features = ["serde"] }
-strum = "0.24.1"
 rand = "0.8.5"
-chrono = { version = "0.4.19", default-features = false, features = ["std", "clock"] }
 rmp-serde = "1.1.0"
-env_logger = "0.9.0"
+serde = "1.0.137"
+sha2 = "0.10.2"
+strum = "0.24.1"
+toml = "0.5.9"

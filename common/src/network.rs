@@ -1,10 +1,10 @@
 use std::{collections::HashMap, fmt::Display};
 
+use crc::{Crc, CRC_32_CKSUM};
 use mint::{Point2, Vector2};
 use ndarray::Array2;
 use serde::{Deserialize, Serialize};
 use strum::{EnumCount, EnumIter, IntoEnumIterator};
-use crc::{Crc, CRC_32_CKSUM};
 
 pub mod client;
 pub mod server;
@@ -133,14 +133,13 @@ impl Display for MapLayer {
     }
 }
 
-const CKSUM: Crc<u32> = Crc::<u32>::new(&CRC_32_CKSUM);
-
 #[derive(Default, Serialize, Deserialize, PartialEq, Debug, Eq, Hash, Clone, Copy)]
 #[serde(transparent)]
 pub struct MapHash(pub u32);
 
 impl From<&str> for MapHash {
     fn from(id: &str) -> Self {
+        const CKSUM: Crc<u32> = Crc::<u32>::new(&CRC_32_CKSUM);
         Self(CKSUM.checksum(id.as_bytes()))
     }
 }

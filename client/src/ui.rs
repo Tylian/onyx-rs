@@ -1,8 +1,8 @@
 mod chat_window;
 mod map_editor;
 
-use egui::{Area, Shape, Rounding, Align2, Order, InnerResponse, Frame, Resize};
 use egui::{popup_below_widget, Id, Image, Rect, Response, ScrollArea, Sense, TextureHandle, Ui};
+use egui::{Align2, Area, Frame, InnerResponse, Order, Resize, Rounding, Shape};
 
 use common::SPRITE_SIZE;
 
@@ -16,36 +16,34 @@ pub use self::map_editor::*;
 pub fn dialog<R>(ctx: &egui::Context, add_contents: impl FnOnce(&mut egui::Ui) -> R) -> InnerResponse<R> {
     // vaguely based on the following code, thanks!
     // https://github.com/4JX/mCubed/blob/8a3b0a1568cbca3c372416db9a82f69b088ae0c6/main/src/ui/widgets/screen_prompt.rs
-    Area::new("prompt_bg")
-        .fixed_pos(egui::Pos2::ZERO)
-        .show(ctx, |ui| {
-            let screen_rect = ctx.input().screen_rect;
+    Area::new("prompt_bg").fixed_pos(egui::Pos2::ZERO).show(ctx, |ui| {
+        let screen_rect = ctx.input().screen_rect;
 
-            ui.allocate_response(screen_rect.size(), Sense::click());
+        ui.allocate_response(screen_rect.size(), Sense::click());
 
-            // 50% opacity non-interative color
-            let shade_color = ui.visuals().noninteractive().bg_fill.linear_multiply(0.5);
+        // 50% opacity non-interative color
+        let shade_color = ui.visuals().noninteractive().bg_fill.linear_multiply(0.5);
 
-            ui.painter().add(Shape::rect_filled(
-                screen_rect,
-                Rounding::none(),
-                shade_color
-            ));
+        ui.painter()
+            .add(Shape::rect_filled(screen_rect, Rounding::none(), shade_color));
 
-            Area::new("prompt_centered")
-                .anchor(Align2::CENTER_CENTER, egui::Vec2::splat(0.0))
-                .order(Order::Foreground)
-                .show(ctx, |ui| {
-                    Frame::popup(ui.style()).show(ui, |ui| {
+        Area::new("prompt_centered")
+            .anchor(Align2::CENTER_CENTER, egui::Vec2::splat(0.0))
+            .order(Order::Foreground)
+            .show(ctx, |ui| {
+                Frame::popup(ui.style())
+                    .show(ui, |ui| {
                         Resize::default()
                             .auto_sized()
                             .with_stroke(false)
                             .min_size([96.0, 32.0])
                             .default_size([340.0, 420.0])
                             .show(ui, add_contents)
-                    }).inner
-                }).inner
-        })
+                    })
+                    .inner
+            })
+            .inner
+    })
 }
 
 // TODO multiple tile selections

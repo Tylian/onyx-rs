@@ -20,7 +20,7 @@
                 }
             },
             "args": [],
-            "cwd": "${workspaceFolder}"
+            "cwd": "${workspaceFolder}/runtime/client"
         },
         {
             "type": "lldb",
@@ -38,7 +38,7 @@
                 }
             },
             "args": [],
-            "cwd": "${workspaceFolder}"
+            "cwd": "${workspaceFolder}/runtime/server"
         },
         {
             "type": "lldb",

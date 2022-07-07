@@ -19,7 +19,12 @@ impl Network {
 
         let (task, receive) = listener.enqueue();
 
-        Self { handler, endpoint, receive, _task: task }
+        Self {
+            handler,
+            endpoint,
+            receive,
+            _task: task,
+        }
     }
 
     pub fn try_receive(&mut self) -> Option<StoredNodeEvent<()>> {
@@ -29,5 +34,9 @@ impl Network {
     pub fn send(&self, message: &Packet) {
         let bytes = rmp_serde::to_vec(message).unwrap();
         self.handler.network().send(self.endpoint, &bytes);
+    }
+
+    pub fn stop(&self) {
+        self.handler.stop();
     }
 }

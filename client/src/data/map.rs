@@ -414,8 +414,7 @@ impl Map {
         let mut layers = HashMap::with_capacity(MapLayer::COUNT);
 
         for layer in MapLayer::iter() {
-            let tiles = Zip::from(indices(dimensions))
-                .map_collect(|index| self.layers[&layer][index]);
+            let tiles = Zip::from(indices(dimensions)).map_collect(|index| self.layers[&layer][index]);
             layers.insert(layer, tiles);
         }
 
