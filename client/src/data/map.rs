@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use anyhow::Result;
-use common::network::{Map as NetworkMap, MapHash, MapLayer, MapSettings, TileAnimation, ZoneData};
+use common::network::{Map as NetworkMap, MapLayer, MapSettings, TileAnimation, ZoneData};
 use common::TILE_SIZE;
 use macroquad::prelude::*;
 use ndarray::{azip, indices, Array2, Zip};
@@ -235,7 +235,6 @@ impl Zone {
 #[derive(Clone)]
 pub struct Map {
     pub id: String,
-    pub hash: MapHash,
     pub width: u32,
     pub height: u32,
     pub settings: MapSettings,
@@ -245,15 +244,15 @@ pub struct Map {
 }
 
 impl Map {
-    pub fn cache_path(hash: MapHash) -> PathBuf {
+    pub fn cache_path(id: &str) -> PathBuf {
         let mut path = common::client_runtime!();
         path.push("maps");
-        path.push(format!("{:x}.bin", hash.0));
+        path.push(format!("{id}.bin"));
         path
     }
 
-    pub fn from_cache(hash: MapHash) -> Result<Self> {
-        let path = Self::cache_path(hash);
+    pub fn from_cache(id: &str) -> Result<Self> {
+        let path = Self::cache_path(id);
         let file = std::fs::File::open(path)?;
         let map: NetworkMap = rmp_serde::from_read(file)?;
 
@@ -263,7 +262,7 @@ impl Map {
     pub fn save_cache(&self) -> Result<()> {
         let map = NetworkMap::from(self.clone());
         let bytes = rmp_serde::to_vec_named(&map)?;
-        let path = Self::cache_path(self.hash);
+        let path = Self::cache_path(&self.id);
         std::fs::write(path, bytes)?;
 
         Ok(())
@@ -274,7 +273,6 @@ impl Map {
         let mut layers = HashMap::new();
         let mut autotiles = HashMap::new();
         let zones = Vec::new();
-        let hash = MapHash::from(id);
 
         for layer in MapLayer::iter() {
             layers.insert(layer, Array2::default((width as usize, height as usize)));
@@ -283,7 +281,6 @@ impl Map {
 
         Self {
             id: id.to_string(),
-            hash,
             width,
             height,
             settings,

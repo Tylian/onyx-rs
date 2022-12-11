@@ -1,4 +1,4 @@
-use common::network::{Direction, MapHash, Player as NetworkPlayer, PlayerFlags};
+use common::network::{Direction, Player as NetworkPlayer, PlayerFlags};
 use euclid::default::{Point2D, Vector2D};
 
 #[derive(Clone)]
@@ -10,7 +10,7 @@ pub struct Player {
     pub position: Point2D<f32>,
     pub direction: Direction,
     pub velocity: Option<Vector2D<f32>>,
-    pub map: MapHash,
+    pub map: String,
     pub flags: PlayerFlags,
 }
 

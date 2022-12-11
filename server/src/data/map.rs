@@ -5,7 +5,7 @@ use std::{
 
 use anyhow::Result;
 use common::{
-    network::{Map as NetworkMap, MapHash, MapLayer, MapSettings, Tile, Zone},
+    network::{Map as NetworkMap, MapLayer, MapSettings, Tile, Zone},
     TILE_SIZE,
 };
 use euclid::default::Box2D;
@@ -15,8 +15,6 @@ use strum::IntoEnumIterator;
 
 #[derive(Default, Clone, Serialize, Deserialize, PartialEq, Debug)]
 pub struct Map {
-    #[serde(alias = "id")]
-    pub hash: MapHash,
     #[serde(skip)]
     pub id: String,
     pub width: u32,
@@ -36,10 +34,10 @@ impl Map {
 
     pub fn load(id: &str) -> Result<Self> {
         let path = Self::path(id);
-        Self::load_path(path)
+        Self::load_from_file(path)
     }
 
-    pub fn load_all() -> Result<HashMap<MapHash, Self>> {
+    pub fn load_all() -> Result<HashMap<String, Self>> {
         let mut path = common::server_runtime!();
         path.push("maps");
 
@@ -48,42 +46,38 @@ impl Map {
             let entry = entry?;
             let path = entry.path();
             if path.is_file() {
-                let mut map = Self::load_path(&path)?;
-                let id = path.file_stem().unwrap().to_string_lossy();
-                let hash = MapHash::from(&*id);
-
-                if map.hash != hash {
-                    log::warn!(
-                        "Map loaded but the file name didn't match it's hash: {:#x} {:#x}",
-                        map.hash.0,
-                        hash.0
-                    );
-
-                    if cfg!(debug_assertions) {
-                        log::debug!("Updating the map's hash to match the file path, this may break warps.");
-                        map.hash = hash;
-                    }
-                }
-
-                maps.insert(map.hash, map);
+                let map = Self::load_from_file(&path)?;
+                maps.insert(map.id.clone(), map);
             }
         }
 
         Ok(maps)
     }
 
-    fn load_path(path: impl AsRef<Path>) -> Result<Self> {
-        let file = std::fs::File::open(path)?;
-        let map = rmp_serde::from_read(file)?;
+    fn load_from_file<P>(path: P) -> Result<Self>
+        where P: AsRef<Path> + Clone
+    {
+        let file = std::fs::File::open(path.clone())?;
+        let map: Self = rmp_serde::from_read(file)?;
 
-        Ok(map)
+        let mut prefix = common::server_runtime!();
+        prefix.push("maps");
+
+        let id = path.as_ref()
+            .strip_prefix(prefix)?
+            .to_string_lossy()
+            .replace('\\', "/");
+
+        Ok(Map {
+            id,
+            ..map
+        })
     }
 
     pub fn new(id: &str, width: u32, height: u32) -> Self {
         let settings = MapSettings::default();
         let mut layers = HashMap::new();
         let zones = Vec::new();
-        let hash = MapHash::from(id);
 
         for layer in MapLayer::iter() {
             layers.insert(layer, Array2::default((width as usize, height as usize)));
@@ -91,7 +85,6 @@ impl Map {
 
         Self {
             id: id.to_string(),
-            hash,
             width,
             height,
             settings,
@@ -128,7 +121,6 @@ impl From<NetworkMap> for Map {
     fn from(other: NetworkMap) -> Self {
         Self {
             id: other.id,
-            hash: other.hash,
             width: other.width,
             height: other.height,
             settings: other.settings,
@@ -142,7 +134,6 @@ impl From<Map> for NetworkMap {
     fn from(other: Map) -> Self {
         Self {
             id: other.id,
-            hash: other.hash,
             width: other.width,
             height: other.height,
             settings: other.settings,

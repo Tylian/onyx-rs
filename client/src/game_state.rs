@@ -501,7 +501,7 @@ impl State {
                 self.players.clear();
                 self.ui.map_editor_shown = false;
 
-                let map = Map::from_cache(id);
+                let map = Map::from_cache(&id);
                 let needs_map = map
                     .as_ref()
                     .map(|map| map.settings.cache_key != cache_id)

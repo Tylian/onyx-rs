@@ -1,10 +1,10 @@
 use std::{collections::HashMap, fmt::Display};
 
-use crc::{Crc, CRC_32_CKSUM};
 use mint::{Point2, Vector2};
 use ndarray::Array2;
 use serde::{Deserialize, Serialize};
 use strum::{EnumCount, EnumIter, IntoEnumIterator};
+use uuid::{Uuid};
 
 pub mod client;
 pub mod server;
@@ -133,28 +133,13 @@ impl Display for MapLayer {
     }
 }
 
-#[derive(Default, Serialize, Deserialize, PartialEq, Debug, Eq, Hash, Clone, Copy)]
+#[derive(Serialize, Deserialize, PartialEq, Debug, Eq, Hash, Clone, Copy)]
 #[serde(transparent)]
-pub struct MapHash(pub u32);
+pub struct MapId(pub Uuid);
 
-impl From<&str> for MapHash {
-    fn from(id: &str) -> Self {
-        const CKSUM: Crc<u32> = Crc::<u32>::new(&CRC_32_CKSUM);
-        Self(CKSUM.checksum(id.as_bytes()))
-    }
-}
-
-impl MapHash {
-    /// Returns the special, must always exist map
-    pub fn start() -> MapHash {
-        "start".into()
-    }
-}
-
-#[derive(Default, Clone, Serialize, Deserialize, PartialEq, Debug)]
+#[derive(Clone, Serialize, Deserialize, PartialEq, Debug)]
 pub struct Map {
     pub id: String,
-    pub hash: MapHash,
     pub width: u32,
     pub height: u32,
     pub settings: MapSettings,
@@ -167,7 +152,6 @@ impl Map {
         let settings = MapSettings::default();
         let mut layers = HashMap::new();
         let zones = Vec::new();
-        let hash = MapHash::from(id);
 
         for layer in MapLayer::iter() {
             layers.insert(layer, Array2::default((width as usize, height as usize)));
@@ -175,7 +159,6 @@ impl Map {
 
         Self {
             id: id.to_string(),
-            hash,
             width,
             height,
             settings,

@@ -13,9 +13,9 @@ use common::{
     network::{
         client::Packet as ClientPacket,
         server::{FailJoinReason, Packet},
-        ChatChannel, ClientId, Direction, MapHash, Zone, ZoneData,
+        ChatChannel, ClientId, Direction, Zone, ZoneData,
     },
-    SPRITE_SIZE,
+    SPRITE_SIZE, START_MAP,
 };
 use env_logger::WriteStyle;
 use euclid::default::{Box2D, Point2D, Size2D, Vector2D};
@@ -52,7 +52,7 @@ struct GameServer {
     config: Config,
     players: HashMap<ClientId, Player>,
     peer_map: HashMap<ClientId, Endpoint>,
-    maps: HashMap<MapHash, Map>,
+    maps: HashMap<String, Map>,
     time: Instant,
     /// Time since last update
     dt: Duration,
@@ -65,8 +65,8 @@ impl GameServer {
         let config = Config::load().context("load config")?;
         let mut maps = Map::load_all().context("load maps")?;
 
-        if let Entry::Vacant(e) = maps.entry(MapHash::start()) {
-            e.insert(create_map("start"));
+        if let Entry::Vacant(e) = maps.entry(START_MAP.to_string()) {
+            e.insert(create_map(START_MAP));
         }
 
         Ok(Self {
@@ -228,7 +228,7 @@ impl GameServer {
                     password,
                     name,
                     position: Point2D::new(self.config.start.x, self.config.start.y),
-                    map: MapHash::start(),
+                    map: START_MAP.to_string(),
                     ..Default::default()
                 };
 
@@ -279,24 +279,22 @@ impl GameServer {
                 self.process_chat_message(client_id, channel, &text);
             }
             ClientPacket::RequestMap => {
-                let map_id = self.players[&client_id].map;
-                let map = &self.maps[&map_id];
+                let map = &self.maps[&self.players[&client_id].map];
 
                 let packet = Packet::MapData(Box::new(map.clone().into()));
                 self.send(client_id, &packet);
             }
             ClientPacket::SaveMap(map) => {
-                let map_id = self.players[&client_id].map;
+                let map_id: &str = self.players[&client_id].map.as_ref();
                 let mut map = Map::from(*map);
-
+                
                 map.settings.cache_key = Utc::now().timestamp_millis();
 
                 if let Err(e) = map.save() {
                     log::error!("Couldn't save map {e}");
                 }
 
-                self.maps.insert(map_id, map.clone());
-
+                self.maps.insert(map_id.to_string(), map.clone());
                 self.send_to_map(map_id, &Packet::MapData(Box::new(map.into())));
             }
             ClientPacket::Move {
@@ -304,8 +302,8 @@ impl GameServer {
                 direction,
                 velocity,
             } => {
-                let map_hash = self.players[&client_id].map;
-                let map = &self.maps[&map_hash];
+                let map_id = self.players[&client_id].map.clone();
+                let map = &self.maps[&map_id];
 
                 let valid = check_collision_with(
                     position.into(),
@@ -328,19 +326,19 @@ impl GameServer {
                         velocity,
                     };
 
-                    self.send_map_except(map_hash, client_id, &packet);
+                    self.send_map_except(&map_id, client_id, &packet);
                 } else {
                     // warping them to the default will just update them with the server truth
-                    self.warp_player(client_id, map_hash, WarpParams::default());
+                    self.warp_player(client_id, &map_id, WarpParams::default());
                 }
             }
             ClientPacket::Warp(map_id, position) => {
                 // note: the requested map possibly doesn't exist
-                let map_hash = self.validate_map(&map_id);
+                self.validate_map(&map_id);
 
                 self.warp_player(
                     client_id,
-                    map_hash,
+                    &map_id,
                     WarpParams {
                         position: position.map(Into::into),
                         direction: Some(Direction::South),
@@ -349,13 +347,15 @@ impl GameServer {
                 );
 
                 // above warp *needs* to create the map or this will fail
-                self.send_map_editor(client_id, map_hash)?;
+                self.send_map_editor(client_id, &map_id)?;
             }
             ClientPacket::MapEditor(open) => {
                 let player = self.players.get_mut(&client_id).unwrap();
                 player.flags.in_map_editor = open;
 
-                let map_id = player.map;
+                // borrow checker go to hell
+                let player = self.players.get(&client_id).unwrap();
+                let map_id = player.map.as_ref();
                 let flags = player.flags;
 
                 self.send_to_map(map_id, &Packet::Flags(client_id, flags));
@@ -388,7 +388,7 @@ impl GameServer {
                 let full_text = format!("{}: {}", player.name, message);
 
                 let packet = Packet::ChatLog(ChatChannel::Say, full_text);
-                self.send_to_map(player.map, &packet);
+                self.send_to_map(&player.map, &packet);
             }
             ChatChannel::Global => {
                 let full_text = format!("{}: {}", player.name, message);
@@ -402,10 +402,10 @@ impl GameServer {
         if let Some(args) = message.strip_prefix("/warp") {
             let map_id = args.trim();
             if !map_id.is_empty() {
-                let map_hash = self.validate_map(map_id);
+                self.validate_map(map_id);
                 self.warp_player(
                     client_id,
-                    map_hash,
+                    map_id,
                     WarpParams {
                         direction: Some(Direction::South),
                         ..Default::default()
@@ -433,38 +433,37 @@ impl GameServer {
                     .find_map(|(cid, player)| (player.name == who).then_some(cid))
                     .ok_or("Could not find the player, are they online?")?;
 
-                let player = self.players.get_mut(&other_id).unwrap();
+                let mut player = self.players.get_mut(&other_id).unwrap();
                 player.sprite = sprite;
                 if let Err(e) = player.save() {
                     log::error!("Couldn't save player: {e}");
                 };
 
-                let map_id = player.map;
-                let data = player.clone();
+                let player = self.players.get(&other_id).unwrap();
+                self.send_to_map(&player.map, &Packet::PlayerData(other_id, player.clone().into()));
 
-                self.send_to_map(map_id, &Packet::PlayerData(other_id, data.into()));
                 Ok(())
             })();
 
             if let Err(e) = result {
                 let error = format!("Error: {}\nUsage: /sprite <player name> <sprite #>", e);
                 self.send(client_id, &Packet::ChatLog(ChatChannel::Error, error));
-            } else {
-                return Some("/sprite");
             }
+
+            return Some("/sprite");
         }
 
         None
     }
 
-    fn send_map_editor(&self, client_id: ClientId, map_hash: MapHash) -> Result<()> {
+    fn send_map_editor(&self, client_id: ClientId, map_id: &str) -> Result<()> {
         let maps = self
             .maps
             .values()
             .map(|map| (map.id.clone(), map.settings.name.clone()))
             .collect::<HashMap<_, _>>();
 
-        let map = &self.maps[&map_hash];
+        let map = &self.maps[map_id];
 
         let id = map.id.to_string();
         let width = map.width;
@@ -488,7 +487,7 @@ impl GameServer {
     fn join_game(&mut self, client_id: ClientId, mut player: Player) {
         // Make sure they're on a valid map, and if they're not move them.
         if !self.maps.contains_key(&player.map) {
-            player.map = MapHash::start();
+            player.map = START_MAP.to_string();
             player.position = self.config.start.position();
         }
 
@@ -500,7 +499,7 @@ impl GameServer {
 
         self.warp_player(
             client_id,
-            player.map,
+            &player.map,
             WarpParams {
                 initial: true,
                 ..Default::default()
@@ -626,44 +625,41 @@ impl GameServer {
         }
 
         for (client_id, map_id, params) in to_warp {
-            let map_hash = self.validate_map(&map_id);
-            self.warp_player(client_id, map_hash, params);
+            self.validate_map(&map_id);
+            self.warp_player(client_id, &map_id, params);
         }
     }
 
     // Convenience function to validate that a map exists by it's name, and then return it's hash
-    fn validate_map(&mut self, map_id: &str) -> MapHash {
-        let map_hash = MapHash::from(map_id);
-        if let Entry::Vacant(e) = self.maps.entry(map_hash) {
+    fn validate_map(&mut self, map_id: &str) {
+        if let Entry::Vacant(e) = self.maps.entry(map_id.to_string()) {
             e.insert(create_map(map_id));
         }
-
-        map_hash
     }
 
     /// Warps the player to a specific map, sending all the correct packets
-    fn warp_player(&mut self, client_id: ClientId, map_hash: MapHash, params: WarpParams) {
+    fn warp_player(&mut self, client_id: ClientId, map_id: &str, params: WarpParams) {
         if !self.players.contains_key(&client_id) {
             return;
         }
 
-        let old_map = self.players[&client_id].map;
+        let old_map = self.players[&client_id].map.as_ref();
 
         // check if we're actually changing maps, or if we're just moving to a new position.
-        if params.initial || self.players[&client_id].map != map_hash {
+        if params.initial || self.players[&client_id].map != map_id {
             if !params.initial {
                 self.send_map_except(old_map, client_id, &Packet::RemoveData(client_id));
             }
 
-            self.players.get_mut(&client_id).unwrap().map = map_hash;
-            let cache_key = self.maps[&map_hash].settings.cache_key;
+            self.players.get_mut(&client_id).unwrap().map = map_id.to_string();
+            let cache_key = self.maps[map_id].settings.cache_key;
 
-            self.send(client_id, &Packet::ChangeMap(map_hash, cache_key));
+            self.send(client_id, &Packet::ChangeMap(map_id.to_string(), cache_key));
 
             let packets = self
                 .players
                 .iter()
-                .filter(|(_, player_data)| player_data.map == map_hash)
+                .filter(|(_, player_data)| player_data.map == map_id)
                 .map(|(&cid, data)| Packet::PlayerData(cid, data.clone().into()))
                 .collect::<Vec<_>>();
 
@@ -672,7 +668,7 @@ impl GameServer {
             }
 
             let player_data = self.players[&client_id].clone();
-            self.send_to_map(map_hash, &Packet::PlayerData(client_id, player_data.into()));
+            self.send_to_map(map_id, &Packet::PlayerData(client_id, player_data.into()));
         }
 
         if let Some(player) = self.players.get_mut(&client_id) {
@@ -692,7 +688,7 @@ impl GameServer {
             };
 
             player.save().unwrap();
-            self.send_to_map(map_hash, &packet);
+            self.send_to_map(map_id, &packet);
         }
     }
 
@@ -730,7 +726,7 @@ impl GameServer {
         }
     }
 
-    pub fn send_to_map(&self, map_id: MapHash, message: &Packet) {
+    pub fn send_to_map(&self, map_id: &str, message: &Packet) {
         let bytes = rmp_serde::to_vec(&message).unwrap();
         for (client_id, player) in &self.players {
             if player.map == map_id {
@@ -740,7 +736,7 @@ impl GameServer {
         }
     }
 
-    pub fn send_map_except(&self, map_id: MapHash, exclude_id: ClientId, message: &Packet) {
+    pub fn send_map_except(&self, map_id: &str, exclude_id: ClientId, message: &Packet) {
         let bytes = rmp_serde::to_vec(&message).unwrap();
         for (client_id, player) in &self.players {
             if player.map == map_id && *client_id != exclude_id {
