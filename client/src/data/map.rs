@@ -136,10 +136,10 @@ impl AutoTile {
         }
     }
     pub fn draw(&self, position: Vec2, animation: Option<TileAnimation>, time: f64, assets: &Assets) {
-        const A: (f32, f32) = (0.0, 0.0);
-        const B: (f32, f32) = (24.0, 0.0);
-        const C: (f32, f32) = (0.0, 24.0);
-        const D: (f32, f32) = (24.0, 24.0);
+        const A: Vec2 = vec2(0.0, 0.0);
+        const B: Vec2 = vec2(24.0, 0.0);
+        const C: Vec2 = vec2(0.0, 24.0);
+        const D: Vec2 = vec2(24.0, 24.0);
 
         let draw_subtile = |position: Vec2, uv: IVec2| {
             let mut uv = uv * TILE_SIZE / 2;
@@ -154,7 +154,9 @@ impl AutoTile {
                 }
             }
 
-            let source = Rect::new(uv.x as f32, uv.y as f32, 24.0, 24.0);
+            const HALF_TILE: f32 = TILE_SIZE as f32 / 2.0;
+
+            let source = Rect::new(uv.x as f32, uv.y as f32, HALF_TILE, HALF_TILE);
             draw_texture_ex(
                 assets.tileset().texture,
                 position.x,
@@ -167,10 +169,10 @@ impl AutoTile {
             );
         };
 
-        draw_subtile(position + A.into(), self.cache[0]);
-        draw_subtile(position + B.into(), self.cache[1]);
-        draw_subtile(position + C.into(), self.cache[2]);
-        draw_subtile(position + D.into(), self.cache[3]);
+        draw_subtile(position + A, self.cache[0]);
+        draw_subtile(position + B, self.cache[1]);
+        draw_subtile(position + C, self.cache[2]);
+        draw_subtile(position + D, self.cache[3]);
     }
 }
 
@@ -346,7 +348,7 @@ impl Map {
         let autotiles = &self.autotiles[&layer];
         azip!((index (x, y), tile in layers, autotile in autotiles) {
             let position = ivec2(x as i32, y as i32);
-            let screen_position = position.as_f32() * TILE_SIZE as f32;
+            let screen_position = position.as_vec2() * TILE_SIZE as f32;
             if let Some(autotile) = autotile {
                 autotile.draw(screen_position, tile.and_then(|t| t.animation), time, assets);
             } else if let Some(tile) = tile {

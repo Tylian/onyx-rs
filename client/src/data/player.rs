@@ -84,7 +84,7 @@ impl Player {
         let measurements = measure_text(&self.name, Some(assets.font), FONT_SIZE, 1.0);
 
         // ? The text is drawn with the baseline being the supplied y
-        let text_offset = ((SPRITE_SIZE as f32 - measurements.width) / 2.0, -3.0).into();
+        let text_offset = vec2((SPRITE_SIZE as f32 - measurements.width) / 2.0, -3.0);
 
         let pos = position + text_offset;
         draw_text_outline(

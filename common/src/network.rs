@@ -4,7 +4,6 @@ use mint::{Point2, Vector2};
 use ndarray::Array2;
 use serde::{Deserialize, Serialize};
 use strum::{EnumCount, EnumIter, IntoEnumIterator};
-use uuid::{Uuid};
 
 pub mod client;
 pub mod server;
@@ -132,10 +131,6 @@ impl Display for MapLayer {
         )
     }
 }
-
-#[derive(Serialize, Deserialize, PartialEq, Debug, Eq, Hash, Clone, Copy)]
-#[serde(transparent)]
-pub struct MapId(pub Uuid);
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Debug)]
 pub struct Map {

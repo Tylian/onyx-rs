@@ -62,7 +62,7 @@ impl ChatWindow {
                 strip.cell(|ui| {
                     ScrollArea::vertical()
                         .auto_shrink([false; 2])
-                        .stick_to_bottom()
+                        .stick_to_bottom(true)
                         .show(ui, |ui| {
                             for (channel, message) in &self.buffer {
                                 self.message_ui(ui, *channel, message);

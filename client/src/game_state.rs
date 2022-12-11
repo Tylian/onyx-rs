@@ -326,7 +326,7 @@ impl State {
                     };
 
                     if let Some(mouse_button) = mouse_button {
-                        let mouse_position = self.camera.screen_to_world(mouse_position().into()).as_i32();
+                        let mouse_position = self.camera.screen_to_world(mouse_position().into()).as_ivec2();
                         let tile_position = mouse_position / TILE_SIZE;
 
                         let current_tile = (mouse_button, tile_position);

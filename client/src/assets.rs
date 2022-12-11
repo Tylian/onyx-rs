@@ -26,7 +26,7 @@ impl DualTexture {
         egui_macroquad::cfg(|ctx| {
             let size = [image.width(), image.height()];
             let image = egui::ColorImage::from_rgba_unmultiplied(size, &image.bytes);
-            egui = Some(ctx.load_texture(name, image));
+            egui = Some(ctx.load_texture(name, image, egui::TextureFilter::Linear));
         });
 
         Self {
