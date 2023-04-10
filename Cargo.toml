@@ -1,13 +1,2 @@
 [workspace]
-members = [
-    "client",
-    "server",
-    "common"
-]
-resolver = "2"
-
-[patch.crates-io]
-egui-miniquad = { git = "https://github.com/not-fl3/egui-miniquad" }
-
-# ffs
-egui-macroquad = { git = "https://github.com/tylian/egui-macroquad" }
+members = ["crates/common", "crates/client", "crates/server"]

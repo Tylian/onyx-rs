@@ -11,11 +11,11 @@
             "cargo": {
                 "args": [
                     "build",
-                    "--bin=onyx-client",
-                    "--package=onyx-client"
+                    "--bin=client",
+                    "--package=client"
                 ],
                 "filter": {
-                    "name": "onyx-client",
+                    "name": "client",
                     "kind": "bin"
                 }
             },
@@ -29,11 +29,11 @@
             "cargo": {
                 "args": [
                     "build",
-                    "--bin=onyx-server",
-                    "--package=onyx-server"
+                    "--bin=server",
+                    "--package=server"
                 ],
                 "filter": {
-                    "name": "onyx-server",
+                    "name": "server",
                     "kind": "bin"
                 }
             },
@@ -43,16 +43,16 @@
         {
             "type": "lldb",
             "request": "launch",
-            "name": "Debug unit tests in library 'onyx-common'",
+            "name": "Debug unit tests in library 'common'",
             "cargo": {
                 "args": [
                     "test",
                     "--no-run",
                     "--lib",
-                    "--package=onyx-common"
+                    "--package=common"
                 ],
                 "filter": {
-                    "name": "onyx-common",
+                    "name": "common",
                     "kind": "lib"
                 }
             },
