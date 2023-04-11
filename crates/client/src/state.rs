@@ -1,4 +1,4 @@
-use notan::{prelude::*, draw::Draw};
+use notan::prelude::*;
 
 pub type SetupCallback = Box<dyn FnOnce(&mut SetupContext) -> Box<dyn State>>;
 
@@ -24,12 +24,6 @@ pub struct SetupContext<'a> {
     pub plugins: &'a mut Plugins,
 }
 
-pub struct TransitionContext<'a> {
-    pub app: &'a App,
-    pub assets: &'a Assets,
-    pub plugins: &'a Plugins,
-}
-
 pub struct EventContext<'a> {
     pub app: &'a mut App,
     pub assets: &'a mut Assets,
@@ -44,6 +38,4 @@ pub trait State {
     fn draw(&mut self, ctx: &mut DrawContext);
     fn update(&mut self, ctx: &mut UpdateContext);
     fn event(&mut self, ctx: &mut EventContext);
-    fn enter(&mut self, ctx: &mut TransitionContext) {}
-    fn exit(&mut self, ctx: &mut TransitionContext) {}
 }

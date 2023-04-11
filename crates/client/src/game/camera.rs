@@ -15,6 +15,7 @@ pub struct Camera {
 }
 
 impl Camera {
+    #[allow(dead_code)]
     pub fn from_target(target: Vec2) -> Self {
         Self {
             target,
@@ -53,6 +54,7 @@ impl Camera {
 
     /// Returns the screen space position for a 2d camera world space position
     /// Screen position in window space - from (0, 0) to (screen_width, screen_height)
+    #[allow(dead_code)]
     pub fn world_to_screen(&self, point: Vec2) -> Vec2 {
         let mat = self.matrix();
         mat.transform_point2(point)

@@ -3,7 +3,7 @@ use std::{collections::HashMap, fmt::Display};
 use mint::{Point2, Vector2};
 use serde::{Deserialize, Serialize};
 
-use super::{ChatChannel, ClientId, Direction, Map, MapSettings, Player, PlayerFlags};
+use super::{ChatChannel, ClientId, Direction, Map, MapSettings, Player, PlayerFlags, MapId};
 
 /// Packets sent from the server to the client
 #[derive(Clone, Serialize, Deserialize, PartialEq, Debug)]
@@ -19,11 +19,11 @@ pub enum Packet {
         velocity: Option<Vector2<f32>>,
     },
     ChatLog(ChatChannel, String),
-    ChangeMap(String, i64),
+    ChangeMap(MapId, i64),
     MapData(Box<Map>),
     MapEditor {
-        maps: HashMap<String, String>,
-        id: String,
+        maps: HashMap<MapId, String>,
+        id: MapId,
         width: u32,
         height: u32,
         settings: MapSettings,

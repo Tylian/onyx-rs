@@ -2,8 +2,6 @@ use std::path::{Path, PathBuf};
 
 pub mod network;
 
-pub const START_MAP: &str = "start";
-
 pub const TILE_SIZE: i32 = 48;
 pub const SPRITE_SIZE: i32 = 48;
 

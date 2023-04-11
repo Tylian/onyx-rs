@@ -1,11 +1,4 @@
-use std::{path::PathBuf, rc::Rc};
-
-// use anyhow::Result;
-// use common::network::{client::Packet, ClientId};
-// use message_io::node::StoredNetEvent;
-// use serde::{Deserialize, Serialize};
-
-// use crate::{assets::Assets, network::Network, ui::dialog};
+use std::{path::PathBuf};
 
 use common::network::client::Packet;
 use message_io::node::StoredNetEvent;
@@ -16,7 +9,7 @@ use notan::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::{assets::AssetCache, game::GameState, network::Network, state::{UpdateContext, DrawContext, SetupContext, EventContext}};
+use crate::{game::GameState, network::Network, state::{UpdateContext, DrawContext, SetupContext, EventContext}};
 
 use super::State;
 
@@ -35,7 +28,7 @@ pub struct TitleState {
 }
 
 impl TitleState {
-    pub fn new(ctx: &mut SetupContext) -> Box<dyn State> {
+    pub fn new_erased(_ctx: &mut SetupContext) -> Box<dyn State> {
         let settings = Settings::load().unwrap_or_default();
 
         Box::new(Self {
@@ -65,8 +58,8 @@ impl TitleState {
                     });
                     ui.separator();
                     match self.tab {
-                        UiTab::Login => self.ui_login(ctx, ui),
-                        UiTab::Create => self.ui_create(ctx, ui),
+                        UiTab::Login => self.ui_login(ui),
+                        UiTab::Create => self.ui_create(ui),
                     }
                 });
             });
@@ -111,7 +104,7 @@ impl TitleState {
         //     }
     }
 
-    pub fn ui_login(&mut self, ctx: &egui::Context, ui: &mut egui::Ui) {
+    pub fn ui_login(&mut self, ui: &mut egui::Ui) {
         Grid::new("login").num_columns(2).show(ui, |ui| {
             ui.label("Username:");
             ui.text_edit_singleline(&mut self.username);
@@ -146,7 +139,7 @@ impl TitleState {
         });
     }
 
-    pub fn ui_create(&mut self, ctx: &egui::Context, ui: &mut egui::Ui) {
+    pub fn ui_create(&mut self, ui: &mut egui::Ui) {
         Grid::new("create").num_columns(2).show(ui, |ui| {
             ui.label("Username:");
             ui.text_edit_singleline(&mut self.username);
@@ -251,7 +244,12 @@ impl State for TitleState {
     }
 
     fn event(&mut self, ctx: &mut EventContext) {
-        
+        use notan::Event;
+        if ctx.event == Event::Exit {
+            if let Some(network) = self.network.as_mut() {
+                network.stop();
+            }
+        }
     }
 }
 

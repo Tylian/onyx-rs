@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use anyhow::Result;
-use common::network::{Direction, Player as NetworkPlayer, PlayerFlags};
+use common::network::{Direction, Player as NetworkPlayer, PlayerFlags, MapId};
 use euclid::default::{Point2D, Vector2D};
 use serde::{Deserialize, Serialize};
 
@@ -11,7 +11,7 @@ pub struct Player {
     pub password: String,
     pub name: String,
     pub sprite: u32,
-    pub map: String,
+    pub map: MapId,
     pub position: Point2D<f32>,
     pub direction: Direction,
     #[serde(skip)]
@@ -30,7 +30,7 @@ impl Default for Player {
             sprite: 0,
             position: Point2D::new(0.0, 0.0),
             direction: Direction::South,
-            map: common::START_MAP.to_string(),
+            map: MapId::default(),
             flags: PlayerFlags::default(),
             velocity: None,
         }
@@ -74,7 +74,7 @@ impl Player {
 }
 
 impl Player {
-    pub fn new(username: &str, password: &str, name: &str, map: &str, position: Point2D<f32>) -> Self {
+    pub fn new(username: &str, password: &str, name: &str, map: MapId, position: Point2D<f32>) -> Self {
         Self {
             username: username.into(),
             password: password.into(),
@@ -82,7 +82,7 @@ impl Player {
             sprite: 0,
             position,
             direction: Direction::South,
-            map: map.to_string(),
+            map,
             velocity: None,
             flags: PlayerFlags::default(),
         }

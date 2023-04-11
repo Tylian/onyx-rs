@@ -4,8 +4,6 @@ use anyhow::anyhow;
 
 use notan::{draw::*, log, prelude::*, egui::{EguiRegisterTexture, TextureId}};
 
-use crate::state::UpdateContext;
-
 pub struct DualTexture {
     pub texture: Asset<Texture>,
     pub egui: Option<TextureId>,

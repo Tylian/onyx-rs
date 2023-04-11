@@ -1,7 +1,7 @@
 use mint::{Point2, Vector2};
 use serde::{Deserialize, Serialize};
 
-use super::{ChatChannel, Direction, Map};
+use super::{ChatChannel, Direction, Map, MapId};
 
 /// Packets sent from the client to the server
 #[derive(Clone, Serialize, Deserialize, PartialEq, Debug)]
@@ -23,6 +23,6 @@ pub enum Packet {
     ChatMessage(ChatChannel, String),
     RequestMap,
     SaveMap(Box<Map>),
-    Warp(String, Option<Point2<f32>>),
+    Warp(MapId, Option<Point2<f32>>),
     MapEditor(bool),
 }

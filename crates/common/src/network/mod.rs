@@ -18,6 +18,16 @@ impl From<u64> for ClientId {
     }
 }
 
+#[derive(Serialize, Deserialize, PartialEq, Debug, Eq, Hash, Clone, Copy, Default, PartialOrd, Ord)]
+#[serde(transparent)]
+pub struct MapId(pub u64);
+
+impl From<u64> for MapId {
+    fn from(id: u64) -> Self {
+        Self(id)
+    }
+}
+
 #[derive(Copy, Clone, Serialize, Deserialize, PartialEq, Debug)]
 pub enum Direction {
     South,
@@ -134,7 +144,7 @@ impl Display for MapLayer {
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Debug)]
 pub struct Map {
-    pub id: String,
+    pub id: MapId,
     pub width: u32,
     pub height: u32,
     pub settings: MapSettings,
@@ -143,7 +153,7 @@ pub struct Map {
 }
 
 impl Map {
-    pub fn new(id: &str, width: u32, height: u32) -> Self {
+    pub fn new(id: MapId, width: u32, height: u32) -> Self {
         let settings = MapSettings::default();
         let mut layers = HashMap::new();
         let zones = Vec::new();
@@ -153,7 +163,7 @@ impl Map {
         }
 
         Self {
-            id: id.to_string(),
+            id,
             width,
             height,
             settings,
@@ -186,19 +196,19 @@ impl Default for MapSettings {
 
 #[derive(Default, Clone, Serialize, Deserialize, PartialEq, Debug)]
 pub struct BoundryWarps {
-    pub north: Option<String>,
-    pub east: Option<String>,
-    pub south: Option<String>,
-    pub west: Option<String>,
+    pub north: Option<MapId>,
+    pub east: Option<MapId>,
+    pub south: Option<MapId>,
+    pub west: Option<MapId>,
 }
 
 impl BoundryWarps {
-    pub fn iter(&self) -> impl Iterator<Item = (Direction, Option<&String>)> {
+    pub fn iter(&self) -> impl Iterator<Item = (Direction, Option<MapId>)> {
         let vec = vec![
-            (Direction::North, self.north.as_ref()),
-            (Direction::East, self.east.as_ref()),
-            (Direction::South, self.south.as_ref()),
-            (Direction::West, self.west.as_ref()),
+            (Direction::North, self.north),
+            (Direction::East, self.east),
+            (Direction::South, self.south),
+            (Direction::West, self.west),
         ];
         vec.into_iter()
     }
@@ -231,7 +241,7 @@ impl TileAnimation {
 #[derive(Clone, Serialize, Deserialize, PartialEq, Debug)]
 pub enum ZoneData {
     Blocked,
-    Warp(String, Point2<f32>, Option<Direction>),
+    Warp(MapId, Point2<f32>, Option<Direction>),
 }
 
 impl ZoneData {

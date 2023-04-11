@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, HashMap};
 
 use common::{
-    network::{MapLayer, MapSettings, TileAnimation, ZoneData},
+    network::{MapLayer, MapSettings, TileAnimation, ZoneData, MapId},
     TILE_SIZE,
 };
 use notan::egui::{*, collapsing_header::CollapsingState};
@@ -9,7 +9,7 @@ use strum::IntoEnumIterator;
 
 use crate::{assets::AssetCache, data::Tile};
 
-use super::{auto_complete, tile_selector};
+use super::tile_selector;
 
 pub fn zone_radio(ui: &mut Ui, selected: bool, title: &str, description: &str) -> Response {
     ui.radio(selected, title).on_hover_ui(|ui| {
@@ -18,13 +18,13 @@ pub fn zone_radio(ui: &mut Ui, selected: bool, title: &str, description: &str) -
     })
 }
 
-fn map_option_selector(ui: &mut Ui, id: &str, value: &mut Option<String>, maps: &BTreeMap<String, String>) {
+fn map_option_selector(ui: &mut Ui, id_source: &str, value: &mut Option<MapId>, maps: &BTreeMap<MapId, String>) {
     let selected_label = match value {
-        Some(id) => format!("{} ({})", maps[id], id),
+        Some(id) => format!("{}. {}", id.0, maps[id]),
         None => String::from("Disabled"),
     };
 
-    ComboBox::from_id_source(id)
+    ComboBox::from_id_source(id_source)
         .selected_text(selected_label)
         .show_ui(ui, |ui| {
             ui.selectable_value(value, None, "Disabled");
@@ -32,25 +32,22 @@ fn map_option_selector(ui: &mut Ui, id: &str, value: &mut Option<String>, maps: 
 
             for (id, name) in maps {
                 // literally just Option::contains
-                let selected = match value {
-                    Some(v) => v.eq(&name),
-                    None => false,
-                };
+                let selected = value.as_ref() == Some(id);
 
-                if ui.selectable_label(selected, format!("{} ({})", name, id)).clicked() {
-                    *value = Some(id.clone());
+                if ui.selectable_label(selected, format!("{}. {}", id.0, name)).clicked() {
+                    *value = Some(*id);
                 }
             }
         });
 }
 
-fn map_selector(ui: &mut Ui, id: &str, value: &mut String, maps: &BTreeMap<String, String>) {
-    ComboBox::from_id_source(id)
-        .selected_text(format!("{} ({})", maps.get(id).map(AsRef::as_ref).unwrap_or(""), id))
+fn map_selector(ui: &mut Ui, id_source: &str, value: &mut MapId, maps: &BTreeMap<MapId, String>) {
+    ComboBox::from_id_source(id_source)
+        .selected_text(format!("{}. {}", value.0, maps.get(value).map(AsRef::as_ref).unwrap_or("")))
         .show_ui(ui, |ui| {
             for (id, name) in maps {
-                if ui.selectable_label(value == id, format!("{} ({})", name, id)).clicked() {
-                    *value = id.clone();
+                if ui.selectable_label(value == id, format!("{}. {}", id.0, name)).clicked() {
+                    *value = *id;
                 }
             }
         });
@@ -71,7 +68,7 @@ pub enum Wants {
     /// Map editor wishes to exit *without* saving changes
     Close,
     /// Map editor wishes to teleport the player to the supplied map
-    Warp(String),
+    Warp(MapId),
     /// Map editor wishes to resize the map
     Resize(u32, u32),
     /// Map editor wishes to fill the layer with a tile
@@ -94,13 +91,13 @@ pub struct MapEditor {
 
     // settings
     settings: MapSettings,
-    id: String,
+    id: MapId,
 
     // tools
-    maps: BTreeMap<String, String>,
+    maps: BTreeMap<MapId, String>,
     new_width: u32,
     new_height: u32,
-    selected_map: String,
+    selected_map: MapId,
 }
 
 impl MapEditor {
@@ -124,7 +121,7 @@ impl MapEditor {
             zone_data: ZoneData::Blocked,
 
             // settings
-            id: String::from("error"),
+            id: MapId::default(),
             settings: MapSettings::default(),
 
             // tools
@@ -132,7 +129,7 @@ impl MapEditor {
             new_width: 0,
             new_height: 0,
 
-            selected_map: String::from("error"),
+            selected_map: MapId::default(),
         }
     }
 
@@ -142,11 +139,11 @@ impl MapEditor {
         }
     }
 
-    pub fn update(&mut self, maps: HashMap<String, String>, width: u32, height: u32, id: &str, settings: MapSettings) {
+    pub fn update(&mut self, maps: HashMap<MapId, String>, width: u32, height: u32, id: MapId, settings: MapSettings) {
         self.new_width = width;
         self.new_height = height;
-        self.id = id.to_string();
-        self.selected_map = id.to_string();
+        self.id = id;
+        self.selected_map = id;
         self.settings = settings;
 
         self.maps = maps.into_iter().collect::<BTreeMap<_, _>>();
@@ -280,7 +277,7 @@ impl MapEditor {
                         "Teleports a player somewhere else",
                     );
                     if response.clicked() {
-                        self.zone_data = ZoneData::Warp(String::from("error"), glam::Vec2::ZERO.into(), None);
+                        self.zone_data = ZoneData::Warp(MapId::default(), glam::Vec2::ZERO.into(), None);
                     }
                 });
             });
@@ -294,9 +291,9 @@ impl MapEditor {
                             ZoneData::Blocked => {
                                 ui.label("Blocked has no values");
                             }
-                            ZoneData::Warp(map_id, position, direction) => {
+                            ZoneData::Warp(mut map_id, position, direction) => {
                                 ui.label("Map:");
-                                map_selector(ui, "zone_map", map_id, &self.maps);
+                                map_selector(ui, "zone_map", &mut map_id, &self.maps);
                                 ui.end_row();
 
                                 ui.label("Position:");
@@ -330,7 +327,7 @@ impl MapEditor {
         });
     }
 
-    pub fn show_settings_tab(&mut self, ui: &mut Ui, assets: &mut AssetCache) {
+    pub fn show_settings_tab(&mut self, ui: &mut Ui, _assets: &mut AssetCache) {
         ui.heading("Map properties");
         Grid::new("properties").num_columns(2).show(ui, |ui| {
             ui.label("Name:");
@@ -338,7 +335,7 @@ impl MapEditor {
             ui.end_row();
 
             ui.label("Internal id:");
-            ui.add_enabled(false, TextEdit::singleline(&mut self.id));
+            ui.add_enabled(false, DragValue::new(&mut self.id.0));
             ui.end_row();
 
             ui.label("Tileset:");
@@ -381,10 +378,6 @@ impl MapEditor {
                     // }
                 });
             ui.end_row();
-
-            ui.label("Cache key:");
-            ui.add_enabled(false, DragValue::new(&mut self.settings.cache_key));
-            ui.end_row();
         });
 
         ui.add_space(6.0);
@@ -415,10 +408,15 @@ impl MapEditor {
         let shift = ui.ctx().input().modifiers.shift;
 
         ui.heading("Teleport");
-        ui.label("Type a map name and hit ▶ and you will be teleported to it.");
+        ui.label("Select a map id and hit ▶ and you will be teleported to it.");
         ui.horizontal(|ui| {
-            let keys: Vec<_> = self.maps.keys().collect();
-            auto_complete(ui, ui.id().with("map warp"), &keys, &mut self.selected_map);
+            // let keys: Vec<_> = self.maps.keys().collect();
+            let name = self.maps.get(&self.selected_map).map_or("", String::as_str);
+            ui.add(
+                DragValue::new(&mut self.selected_map.0)
+                    .suffix(format!(". {}", name))
+            );
+            // auto_complete(ui, ui.id().with("map warp"), &keys, &mut self.selected_map);
 
             // fn label_text(id: MapHash, name: Option<impl AsRef<str>>) -> impl Into<WidgetText> {
             //     if let Some(name) = name {
@@ -514,7 +512,7 @@ impl MapEditor {
         &self.zone_data
     }
 
-    pub fn map_settings(&self) -> (&str, &MapSettings) {
-        (&*self.id, &self.settings)
+    pub fn map_settings(&self) -> (MapId, &MapSettings) {
+        (self.id, &self.settings)
     }
 }

@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 mod chat_window;
 mod map_editor;
 
@@ -11,7 +13,6 @@ pub use self::chat_window::*;
 pub use self::map_editor::*;
 
 // ! A few functions in here are dead code, remove them if need be eventually.
-
 pub fn dialog<R>(ctx: &Context, add_contents: impl FnOnce(&mut Ui) -> R) -> InnerResponse<R> {
     // vaguely based on the following code, thanks!
     // https://github.com/4JX/mCubed/blob/8a3b0a1568cbca3c372416db9a82f69b088ae0c6/main/src/ui/widgets/screen_prompt.rs

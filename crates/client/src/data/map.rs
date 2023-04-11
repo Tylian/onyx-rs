@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use anyhow::Result;
-use common::network::{Map as NetworkMap, MapLayer, MapSettings, TileAnimation, ZoneData};
+use common::network::{Map as NetworkMap, MapLayer, MapSettings, TileAnimation, ZoneData, MapId};
 use common::TILE_SIZE;
 use ndarray::{azip, indices, Array2, Zip};
 use notan::{draw::*, math::*, prelude::*};
@@ -242,7 +242,7 @@ impl Zone {
 
 #[derive(Clone)]
 pub struct Map {
-    pub id: String,
+    pub id: MapId,
     pub width: u32,
     pub height: u32,
     pub settings: MapSettings,
@@ -252,11 +252,11 @@ pub struct Map {
 }
 
 impl Map {
-    pub fn cache_path(id: &str) -> PathBuf {
-        common::client_path(format!("maps/{id}.bin"))
+    pub fn cache_path(id: MapId) -> PathBuf {
+        common::client_path(format!("maps/{}.bin", id.0))
     }
 
-    pub fn from_cache(id: &str) -> Result<Self> {
+    pub fn from_cache(id: MapId) -> Result<Self> {
         let path = Self::cache_path(id);
         let file = std::fs::File::open(path)?;
         let map: NetworkMap = rmp_serde::from_read(file)?;
@@ -267,13 +267,13 @@ impl Map {
     pub fn save_cache(&self) -> Result<()> {
         let map = NetworkMap::from(self.clone());
         let bytes = rmp_serde::to_vec_named(&map)?;
-        let path = Self::cache_path(&self.id);
+        let path = Self::cache_path(self.id);
         std::fs::write(path, bytes)?;
 
         Ok(())
     }
 
-    pub fn new(id: &str, width: u32, height: u32) -> Self {
+    pub fn new(id: MapId, width: u32, height: u32) -> Self {
         let settings = MapSettings::default();
         let mut layers = HashMap::new();
         let mut autotiles = HashMap::new();
@@ -285,7 +285,7 @@ impl Map {
         }
 
         Self {
-            id: id.to_string(),
+            id,
             width,
             height,
             settings,

@@ -5,7 +5,7 @@ use std::{
 
 use anyhow::Result;
 use common::{
-    network::{Map as NetworkMap, MapLayer, MapSettings, Tile, Zone},
+    network::{Map as NetworkMap, MapLayer, MapSettings, Tile, Zone, MapId},
     TILE_SIZE,
 };
 use euclid::default::Box2D;
@@ -15,8 +15,7 @@ use strum::IntoEnumIterator;
 
 #[derive(Default, Clone, Serialize, Deserialize, PartialEq, Debug)]
 pub struct Map {
-    #[serde(skip)]
-    pub id: String,
+    pub id: MapId,
     pub width: u32,
     pub height: u32,
     pub settings: MapSettings,
@@ -25,16 +24,16 @@ pub struct Map {
 }
 
 impl Map {
-    pub fn path(id: &str) -> PathBuf {
-        common::server_path(format!("maps/{id}.bin"))
+    pub fn path(id: MapId) -> PathBuf {
+        common::server_path(format!("maps/{}.bin", id.0))
     }
 
-    pub fn load(id: &str) -> Result<Self> {
+    pub fn load(id: MapId) -> Result<Self> {
         let path = Self::path(id);
         Self::load_from_file(path)
     }
 
-    pub fn load_all() -> Result<HashMap<String, Self>> {
+    pub fn load_all() -> Result<HashMap<MapId, Self>> {
         let path = common::server_path("maps");
 
         let mut maps = HashMap::new();
@@ -43,7 +42,7 @@ impl Map {
             let path = entry.path();
             if path.is_file() {
                 let map = Self::load_from_file(&path)?;
-                maps.insert(map.id.clone(), map);
+                maps.insert(map.id, map);
             }
         }
 
@@ -54,17 +53,13 @@ impl Map {
     where
         P: AsRef<Path> + Clone,
     {
-        let file = std::fs::File::open(path.clone())?;
+        let file = std::fs::File::open(path)?;
         let map: Self = rmp_serde::from_read(file)?;
 
-        let mut prefix = common::server_path("maps");
-
-        let id = path.as_ref().strip_prefix(prefix)?.to_string_lossy().replace('\\', "/");
-
-        Ok(Map { id, ..map })
+        Ok(map)
     }
 
-    pub fn new(id: &str, width: u32, height: u32) -> Self {
+    pub fn new(id: MapId, width: u32, height: u32) -> Self {
         let settings = MapSettings::default();
         let mut layers = HashMap::new();
         let zones = Vec::new();
@@ -74,7 +69,7 @@ impl Map {
         }
 
         Self {
-            id: id.to_string(),
+            id,
             width,
             height,
             settings,
@@ -84,7 +79,7 @@ impl Map {
     }
 
     pub fn save(&self) -> Result<()> {
-        let path = Self::path(&self.id);
+        let path = Self::path(self.id);
 
         let map = self.clone();
         let contents = rmp_serde::to_vec_named(&map)?;

@@ -90,7 +90,7 @@ impl GameState {
 }
 
 fn setup(app: &mut App, assets: &mut Assets, gfx: &mut Graphics, plugins: &mut Plugins) -> GameState {
-    let mut state = GameState::new(Box::new(TitleState::new));
+    let mut state = GameState::new(Box::new(TitleState::new_erased));
     state.next_state(app, assets, gfx, plugins);
 
     state

@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use common::{
-    network::{server::Packet as ServerPacket, ClientId, ZoneData, Direction, client::Packet, MapLayer, ChatChannel},
+    network::{server::Packet as ServerPacket, ClientId, ZoneData, Direction, client::Packet, MapLayer, ChatChannel, MapId},
     SPRITE_SIZE, WALK_SPEED, RUN_SPEED, TILE_SIZE,
 };
 use message_io::node::StoredNetEvent;
@@ -46,7 +46,7 @@ impl GameState {
             local_player: client_id,
             players: HashMap::new(),
             network,
-            map: Map::new("start", 20, 15),
+            map: Map::new(MapId::default(), 20, 15),
             camera: Camera::default(),
             ui: UiState::default(),
             last_movement: None,
@@ -103,7 +103,7 @@ impl GameState {
                 self.players.clear();
                 self.ui.map_editor_shown = false;
 
-                let map = Map::from_cache(&id);
+                let map = Map::from_cache(id);
                 let needs_map = map
                     .as_ref()
                     .map(|map| map.settings.cache_key != cache_id)
@@ -151,7 +151,7 @@ impl GameState {
                 settings,
                 maps,
             } => {
-                self.ui.map_editor.update(maps, width, height, &*id, settings);
+                self.ui.map_editor.update(maps, width, height, id, settings);
                 self.ui.map_editor_shown = true;
             }
             ServerPacket::Flags(client_id, flags) => {
@@ -264,7 +264,7 @@ impl GameState {
             None => (),
             Some(Wants::Save) => {
                 let (id, settings) = self.ui.map_editor.map_settings();
-                self.map.id = id.to_string();
+                self.map.id = id;
                 self.map.settings = settings.clone();
 
                 let data = Box::new(self.map.clone().into());
@@ -291,7 +291,7 @@ impl GameState {
                 if zone.position.contains(mouse_position) {
                     if let ZoneData::Warp(map_id, position, direction) = &zone.data {
                         egui::show_tooltip_at_pointer(ctx, egui::Id::new("zone_tooltip"), |ui| {
-                            ui.label(format!("Warp to: {map_id}"));
+                            ui.label(format!("Warp to map #{}", map_id.0));
                             ui.label(format!("x: {} y: {}", position.x, position.y));
                             if let Some(direction) = direction {
                                 ui.label(format!("Stops movement, faces {}", direction));
@@ -443,6 +443,8 @@ impl GameState {
         }
     }
 
+    // TODO: re-enable camera snapping
+    #[allow(unused_variables)]
     fn update_camera(&mut self, ctx: &mut UpdateContext) {
         let size = ctx.app.window().size();
         let (screen_width, screen_height) = (size.0 as f32, size.1 as f32);
@@ -574,7 +576,10 @@ impl State for GameState {
     }
 
     fn event(&mut self, ctx: &mut EventContext) {
-        
+        if ctx.event == Event::Exit {
+            log::info!("Goodbye!");
+            self.network.stop();
+        }
     }
 }
 
