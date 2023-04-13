@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use common::{
-    network::{server::Packet as ServerPacket, ClientId, ZoneData, Direction, client::Packet, MapLayer, ChatChannel, MapId},
+    network::{server::Packet as ServerPacket, Entity, ZoneData, Direction, client::Packet, MapLayer, ChatChannel, MapId},
     SPRITE_SIZE, WALK_SPEED, RUN_SPEED, TILE_SIZE,
 };
 use message_io::node::StoredNetEvent;
@@ -30,20 +30,20 @@ pub struct GameState {
     assets: AssetCache,
     camera: Camera,
     last_movement: Option<(Direction, f32)>,
-    local_player: ClientId,
+    local_player: Entity,
     map: Map,
     network: Network,
-    players: HashMap<ClientId, Player>,
+    players: HashMap<Entity, Player>,
     ui: UiState,
 }
 
 impl GameState {
-    pub fn new(client_id: ClientId, network: Network, ctx: &mut SetupContext) -> Self {
+    pub fn new(local_player: Entity, network: Network, ctx: &mut SetupContext) -> Self {
         let assets = AssetCache::load(ctx.assets, ctx.gfx).unwrap();
 
         Self {
             assets,
-            local_player: client_id,
+            local_player: local_player,
             players: HashMap::new(),
             network,
             map: Map::new(MapId::default(), 20, 15),
@@ -62,7 +62,7 @@ impl GameState {
                     let message = rmp_serde::from_slice(&bytes).unwrap();
                     self.handle_message(message, ctx);
                 }
-                StoredNetEvent::Disconnected(_) => todo!(),
+                StoredNetEvent::Disconnected(_) => { },
             }
         }
     }
@@ -118,12 +118,12 @@ impl GameState {
                 }
             }
             ServerPacket::PlayerMove {
-                client_id,
+                entity,
                 position,
                 direction,
                 velocity,
             } => {
-                if let Some(player) = self.players.get_mut(&client_id) {
+                if let Some(player) = self.players.get_mut(&entity) {
                     player.position = position.into();
                     player.direction = direction;
                     if let Some(velocity) = velocity {
@@ -154,8 +154,8 @@ impl GameState {
                 self.ui.map_editor.update(maps, width, height, id, settings);
                 self.ui.map_editor_shown = true;
             }
-            ServerPacket::Flags(client_id, flags) => {
-                self.players.get_mut(&client_id).unwrap().flags = flags;
+            ServerPacket::Flags(entity, flags) => {
+                self.players.get_mut(&entity).unwrap().flags = flags;
             }
         }
     }
@@ -179,7 +179,7 @@ impl GameState {
     
         let time = ctx.app.timer.time_since_init();
 
-        for (client_id, player) in &mut self.players {
+        for (entity, player) in &mut self.players {
             if let Some(&mut velocity) = player.velocity.as_mut() {
                 let offset = velocity * (time - player.last_update);
                 let new_position = player.position + offset;
@@ -201,7 +201,7 @@ impl GameState {
                 if !player.flags.in_map_editor {
                     valid &= !player_boxes
                         .iter()
-                        .filter(|(cid, _b)| cid != client_id)
+                        .filter(|(id, _b)| id != entity)
                         .any(|(_, b)| b.overlaps(&sprite_rect));
 
                     valid &= !self
@@ -463,13 +463,13 @@ impl GameState {
             // target = target.clamp(min, max);
 
             // if the map is too small, center it
-            // if map_width <= screen_width {
-            //     target.x = map_width / 2.0;
-            // }
+            if map_width <= screen_width {
+                target.x = map_width / 2.0;
+            }
 
-            // if map_height <= screen_height {
-            //     target.y = map_height / 2.0;
-            // }
+            if map_height <= screen_height {
+                target.y = map_height / 2.0;
+            }
 
             self.camera.target = target;
         }
