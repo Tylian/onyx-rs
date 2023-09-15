@@ -48,6 +48,7 @@ impl NameCache {
     pub fn path() -> PathBuf {
         common::server_path("names.cache")
     }
+
     pub fn load() -> Result<Self> {
         use std::io::{ErrorKind, Result};
         let contents = match std::fs::read_to_string(Self::path()) {
@@ -60,6 +61,7 @@ impl NameCache {
             names: contents.lines().map(ToString::to_string).collect(),
         })
     }
+    
     pub fn save(&self) -> Result<()> {
         let contents = self.names.iter().cloned().collect::<Vec<_>>().join("\n");
 
@@ -70,6 +72,7 @@ impl NameCache {
     pub fn contains(&self, name: &str) -> bool {
         self.names.contains(name)
     }
+
     pub fn insert(&mut self, name: String) {
         self.names.insert(name);
     }

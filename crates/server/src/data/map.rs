@@ -3,7 +3,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use anyhow::Result;
+use anyhow::{Result, Context};
 use common::{
     network::{Map as NetworkMap, MapLayer, MapSettings, Tile, Zone, MapId},
     TILE_SIZE,
@@ -41,7 +41,7 @@ impl Map {
             let entry = entry?;
             let path = entry.path();
             if path.is_file() {
-                let map = Self::load_from_file(&path)?;
+                let map = Self::load_from_file(&path).with_context(|| format!("loading {}", path.display()))?;
                 maps.insert(map.id, map);
             }
         }

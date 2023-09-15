@@ -2,18 +2,18 @@ mod data;
 mod player;
 
 use std::{
-    collections::{hash_map::Entry, HashMap},
+    collections::{hash_map::Entry, HashMap, HashSet},
     time::{Duration, Instant},
 };
 
 use anyhow::{bail, Context, Result};
 use base64ct::{Base64, Encoding};
-use chrono::Utc;
+use bimap::BiMap;
 use common::{
     network::{
         client::Packet as ClientPacket,
         server::{FailJoinReason, Packet},
-        ChatChannel, ClientId, Direction, Zone, ZoneData, MapId,
+        ChatChannel, Entity, Direction, Zone, ZoneData, MapId,
     },
     SPRITE_SIZE,
 };
@@ -50,15 +50,16 @@ struct WarpParams {
 
 struct GameServer {
     config: Config,
-    players: HashMap<ClientId, Player>,
-    peer_map: HashMap<ClientId, Endpoint>,
+    players: HashMap<Entity, Player>,
+    peer_map: BiMap<Entity, Endpoint>,
+    endpoints: HashSet<Endpoint>,
+    next_idx: u64,
     maps: HashMap<MapId, Map>,
     time: Instant,
     /// Time since last update
     dt: Duration,
     handler: Option<NodeHandler<()>>,
-    #[allow(dead_code)]
-    rng: ThreadRng,
+    _rng: ThreadRng,
 }
 
 impl GameServer {
@@ -73,12 +74,14 @@ impl GameServer {
         Ok(Self {
             config,
             players: HashMap::new(),
-            peer_map: HashMap::new(),
+            peer_map: BiMap::new(),
+            endpoints: HashSet::new(),
+            next_idx: 0,
             time: Instant::now(),
             dt: Duration::ZERO,
             handler: None,
             maps,
-            rng: rand::thread_rng(),
+            _rng: rand::thread_rng(),
         })
     }
 
@@ -86,7 +89,7 @@ impl GameServer {
         let (handler, listener) = node::split::<()>();
         handler
             .network()
-            .listen(Transport::Ws, self.config.listen.clone())
+            .listen(Transport::FramedTcp, self.config.listen.clone())
             .unwrap();
 
         self.handler = Some(handler);
@@ -94,9 +97,6 @@ impl GameServer {
         log::info!("Listening on {}", self.config.listen);
 
         let (_task, mut receive) = listener.enqueue();
-
-        let mut peer_map: HashMap<Endpoint, ClientId> = HashMap::new();
-        let mut idx = 0u64;
 
         loop {
             let now = Instant::now();
@@ -108,50 +108,29 @@ impl GameServer {
                 match event.network() {
                     StoredNetEvent::Connected(_, _) => unreachable!(),
                     StoredNetEvent::Accepted(endpoint, _listener) => {
-                        let client_id = ClientId(idx);
-                        peer_map.insert(endpoint, client_id);
-                        self.peer_map.insert(client_id, endpoint);
-                        idx += 1;
+                        self.endpoints.insert(endpoint);
 
                         log::info!(
                             "Client ({}) connected (total clients: {})",
                             endpoint.addr(),
-                            peer_map.len()
+                            self.endpoints.len()
                         );
                     }
                     StoredNetEvent::Message(endpoint, bytes) => {
                         let message = rmp_serde::from_slice(&bytes).unwrap();
-                        let client_id = peer_map[&endpoint];
 
-                        if let Err(e) = self.handle_message(client_id, message) {
-                            if let Some(client_id) = peer_map.remove(&endpoint) {
-                                self.peer_map.remove(&client_id);
-                                self.handle_disconnect(client_id);
-                            }
-
+                        if let Err(e) = self.handle_message(endpoint, message) {
+                            self.endpoints.remove(&endpoint);
+                            self.handle_disconnect(endpoint);
                             log::warn!(
                                 "Disconnecting client ({}), message handler returned an error: {e}",
                                 endpoint.addr(),
                             );
-
-                            log::info!(
-                                "Client ({}) disconnected (total clients: {})",
-                                endpoint.addr(),
-                                peer_map.len()
-                            );
                         }
                     }
                     StoredNetEvent::Disconnected(endpoint) => {
-                        if let Some(client_id) = peer_map.remove(&endpoint) {
-                            self.peer_map.remove(&client_id);
-                            self.handle_disconnect(client_id);
-                        }
-
-                        log::info!(
-                            "Client ({}) disconnected (total clients: {})",
-                            endpoint.addr(),
-                            peer_map.len()
-                        );
+                        self.endpoints.remove(&endpoint);
+                        self.handle_disconnect(endpoint);
                     }
                 }
             }
@@ -165,43 +144,53 @@ impl GameServer {
         }
     }
 
-    fn handle_disconnect(&mut self, client_id: ClientId) {
-        if let Some(player) = self.players.remove(&client_id) {
-            self.send_list(
-                &self
-                    .players
-                    .iter()
-                    .filter(|(_, data)| data.map == player.map)
-                    .map(|(&cid, _)| cid)
-                    .collect::<Vec<_>>(),
-                &Packet::RemoveData(client_id),
-            );
+    fn handle_disconnect(&mut self, endpoint: Endpoint) {
+        log::info!(
+            "Client ({}) disconnected (total clients: {})",
+            endpoint.addr(),
+            self.endpoints.len()
+        );
+
+        let Some(&entity) = self.peer_map.get_by_right(&endpoint) else {
+            return;
+        };
+
+
+        if let Some(player) = self.players.remove(&entity) {
+            let players = self.players
+                .iter()
+                .filter_map(|(&id, data)| (data.map == player.map).then_some(id))
+                .collect::<Vec<_>>();
+
+            self.send_list(&players, &Packet::RemoveData(entity));
 
             let goodbye = Packet::ChatLog(ChatChannel::Server, format!("{} has left the game.", &player.name));
-            self.send_exclude(client_id, &goodbye);
+            self.send_exclude(entity, &goodbye);
 
             player.save().unwrap();
         }
+
+        self.peer_map.remove_by_right(&endpoint);
     }
 
-    fn handle_message(&mut self, client_id: ClientId, message: ClientPacket) -> Result<()> {
+    fn handle_message(&mut self, endpoint: Endpoint, message: ClientPacket) -> Result<()> {
         use common::network::client::Packet::*;
 
         match &message {
-            SaveMap(_) => log::debug!("SaveMap(..)"),
+            SaveMap(_) => log::debug!("{}: SaveMap(..)", endpoint.addr()),
             message => {
-                log::debug!("{client_id:?}: {message:?}");
+                log::debug!("{}: {:?}", endpoint.addr(), message);
             }
         }
 
-        if self.players.contains_key(&client_id) {
-            self.handle_game_message(client_id, message)
+        if let Some(&entity) = self.peer_map.get_by_right(&endpoint) {
+            self.handle_game_message(entity, message)
         } else {
-            self.handle_login_message(client_id, message)
+            self.handle_login_message(endpoint, message)
         }
     }
 
-    fn handle_login_message(&mut self, client_id: ClientId, message: ClientPacket) -> Result<()> {
+    fn handle_login_message(&mut self, endpoint: Endpoint, message: ClientPacket) -> Result<()> {
         match message {
             ClientPacket::CreateAccount {
                 username,
@@ -211,11 +200,11 @@ impl GameServer {
                 let mut name_cache = NameCache::load().unwrap();
 
                 if Player::path(&username).exists() {
-                    self.send(client_id, &Packet::FailedJoin(FailJoinReason::UsernameTaken));
+                    self.send_to(endpoint, &Packet::FailedJoin(FailJoinReason::UsernameTaken));
                 }
 
                 if name_cache.contains(&name) {
-                    self.send(client_id, &Packet::FailedJoin(FailJoinReason::CharacterNameTaken));
+                    self.send_to(endpoint, &Packet::FailedJoin(FailJoinReason::CharacterNameTaken));
                 }
 
                 name_cache.insert(name.clone());
@@ -234,15 +223,14 @@ impl GameServer {
 
                 player.save().unwrap();
 
-                self.join_game(client_id, player);
+                self.join_game(endpoint, player);
             }
             ClientPacket::Login { username, password } => {
-                let incorrect = Packet::FailedJoin(FailJoinReason::LoginIncorrect);
-
                 if let Some(player) = Self::check_password(&username, &password) {
-                    self.join_game(client_id, player);
+                    self.join_game(endpoint, player);
                 } else {
-                    self.send(client_id, &incorrect);
+                    let incorrect = Packet::FailedJoin(FailJoinReason::LoginIncorrect);
+                    self.send_to(endpoint, &incorrect);
                 }
             }
             _ => {
@@ -271,24 +259,29 @@ impl GameServer {
         None
     }
 
-    fn handle_game_message(&mut self, client_id: ClientId, message: ClientPacket) -> Result<()> {
+    fn handle_game_message(&mut self, entity: Entity, message: ClientPacket) -> Result<()> {
         match message {
             ClientPacket::CreateAccount { .. } | ClientPacket::Login { .. } => unreachable!(),
 
             ClientPacket::ChatMessage(channel, text) => {
-                self.process_chat_message(client_id, channel, &text);
+                self.process_chat_message(entity, channel, &text);
             }
             ClientPacket::RequestMap => {
-                let map = &self.maps[&self.players[&client_id].map];
+                let map = &self.maps[&self.players[&entity].map];
 
                 let packet = Packet::MapData(Box::new(map.clone().into()));
-                self.send(client_id, &packet);
+                self.send(entity, &packet);
             }
             ClientPacket::SaveMap(map) => {
-                let map_id = self.players[&client_id].map;
+                use std::time::SystemTime;
+
+                let map_id = self.players[&entity].map;
                 let mut map = Map::from(*map);
 
-                map.settings.cache_key = Utc::now().timestamp_millis();
+                map.settings.cache_key = match SystemTime::now().duration_since(SystemTime::UNIX_EPOCH) {
+                    Ok(n) => n.as_secs(),
+                    Err(_) => unreachable!()
+                };
 
                 if let Err(e) = map.save() {
                     log::error!("Couldn't save map {e}");
@@ -302,7 +295,7 @@ impl GameServer {
                 direction,
                 velocity,
             } => {
-                let map_id = self.players[&client_id].map;
+                let map_id = self.players[&entity].map;
                 let map = &self.maps[&map_id];
 
                 let valid = check_collision_with(
@@ -313,23 +306,23 @@ impl GameServer {
                 .is_none();
 
                 if valid {
-                    let player = self.players.get_mut(&client_id).unwrap();
+                    let player = self.players.get_mut(&entity).unwrap();
 
                     player.position = position.into();
                     player.velocity = velocity.map(Into::into);
                     player.direction = direction;
 
                     let packet = Packet::PlayerMove {
-                        client_id,
+                        entity,
                         position,
                         direction,
                         velocity,
                     };
 
-                    self.send_map_except(map_id, client_id, &packet);
+                    self.send_map_except(map_id, entity, &packet);
                 } else {
                     // warping them to the default will just update them with the server truth
-                    self.warp_player(client_id, map_id, WarpParams::default());
+                    self.warp_player(entity, map_id, WarpParams::default());
                 }
             }
             ClientPacket::Warp(map_id, position) => {
@@ -337,7 +330,7 @@ impl GameServer {
                 self.validate_map(map_id);
 
                 self.warp_player(
-                    client_id,
+                    entity,
                     map_id,
                     WarpParams {
                         position: position.map(Into::into),
@@ -347,21 +340,21 @@ impl GameServer {
                 );
 
                 // above warp *needs* to create the map or this will fail
-                self.send_map_editor(client_id, map_id)?;
+                self.send_map_editor(entity, map_id)?;
             }
             ClientPacket::MapEditor(open) => {
-                let player = self.players.get_mut(&client_id).unwrap();
+                let player = self.players.get_mut(&entity).unwrap();
                 player.flags.in_map_editor = open;
 
                 // borrow checker go to hell
-                let player = self.players.get(&client_id).unwrap();
+                let player = self.players.get(&entity).unwrap();
                 let map_id = player.map;
                 let flags = player.flags;
 
-                self.send_to_map(map_id, &Packet::Flags(client_id, flags));
+                self.send_to_map(map_id, &Packet::Flags(entity, flags));
 
                 if open {
-                    self.send_map_editor(client_id, map_id)?;
+                    self.send_map_editor(entity, map_id)?;
                 }
             }
         }
@@ -369,13 +362,13 @@ impl GameServer {
         Ok(())
     }
 
-    fn process_chat_message(&mut self, client_id: ClientId, channel: ChatChannel, message: &str) {
-        if let Some(command) = self.process_chat_command(client_id, message) {
-            log::info!("{client_id:?}: used the {command} command");
+    fn process_chat_message(&mut self, entity: Entity, channel: ChatChannel, message: &str) {
+        if let Some(command) = self.process_chat_command(entity, message) {
+            log::info!("{entity:?}: used the {command} command");
             return;
         }
 
-        let player = &self.players[&client_id];
+        let player = &self.players[&entity];
         match channel {
             ChatChannel::Echo | ChatChannel::Error => {
                 log::warn!("Client tried to talk in an invalid channel");
@@ -398,13 +391,13 @@ impl GameServer {
         }
     }
 
-    fn process_chat_command(&mut self, client_id: ClientId, message: &str) -> Option<&str> {
+    fn process_chat_command(&mut self, entity: Entity, message: &str) -> Option<&str> {
         if let Some(args) = message.strip_prefix("/warp") {
             let parsed = args.trim().parse::<u64>().map(MapId::from);
             if let Ok(map_id) = parsed {
                 self.validate_map(map_id);
                 self.warp_player(
-                    client_id,
+                    entity,
                     map_id,
                     WarpParams {
                         direction: Some(Direction::South),
@@ -413,7 +406,7 @@ impl GameServer {
                 );
             } else {
                 self.send(
-                    client_id,
+                    entity,
                     &Packet::ChatLog(ChatChannel::Error, String::from("Usage: /warp <map id>")),
                 );
             }
@@ -427,27 +420,25 @@ impl GameServer {
                 let (who, sprite) = args.trim().rsplit_once(' ').ok_or("Wrong number of arguments")?;
                 let sprite = sprite.parse().map_err(|_| "Invalid sprite, it must be a number")?;
 
-                let other_id = *self
-                    .players
-                    .iter()
-                    .find_map(|(cid, player)| (player.name == who).then_some(cid))
+                let other_entity = *self.players.iter()
+                    .find_map(|(id, player)| (player.name == who).then_some(id))
                     .ok_or("Could not find the player, are they online?")?;
 
-                let mut player = self.players.get_mut(&other_id).unwrap();
+                let mut player = self.players.get_mut(&other_entity).unwrap();
                 player.sprite = sprite;
                 if let Err(e) = player.save() {
                     log::error!("Couldn't save player: {e}");
                 };
 
-                let player = self.players.get(&other_id).unwrap();
-                self.send_to_map(player.map, &Packet::PlayerData(other_id, player.clone().into()));
+                let player = self.players.get(&other_entity).unwrap();
+                self.send_to_map(player.map, &Packet::PlayerData(other_entity, player.clone().into()));
 
                 Ok(())
             })();
 
             if let Err(e) = result {
                 let error = format!("Error: {}\nUsage: /sprite <player name> <sprite #>", e);
-                self.send(client_id, &Packet::ChatLog(ChatChannel::Error, error));
+                self.send(entity, &Packet::ChatLog(ChatChannel::Error, error));
             }
 
             return Some("/sprite");
@@ -456,7 +447,7 @@ impl GameServer {
         None
     }
 
-    fn send_map_editor(&self, client_id: ClientId, map_id: MapId) -> Result<()> {
+    fn send_map_editor(&self, entity: Entity, map_id: MapId) -> Result<()> {
         let maps = self
             .maps
             .values()
@@ -472,7 +463,7 @@ impl GameServer {
         let settings = map.settings.clone();
 
         self.send(
-            client_id,
+            entity,
             &Packet::MapEditor {
                 maps,
                 id,
@@ -485,7 +476,11 @@ impl GameServer {
         Ok(())
     }
 
-    fn join_game(&mut self, client_id: ClientId, mut player: Player) {
+    fn join_game(&mut self, endpoint: Endpoint, mut player: Player) {
+        // Allocate an entity with an associated endpoint
+        let entity = self.next_entity();
+        self.peer_map.insert(entity, endpoint);
+
         // Make sure they're on a valid map, and if they're not move them.
         if !self.maps.contains_key(&player.map) {
             player.map = MapId::default();
@@ -493,13 +488,13 @@ impl GameServer {
         }
 
         // Save their data
-        self.players.insert(client_id, player.clone());
+        self.players.insert(entity, player.clone());
 
         // Send them their ID
-        self.send(client_id, &Packet::JoinGame(client_id));
+        self.send(entity, &Packet::JoinGame(entity));
 
         self.warp_player(
-            client_id,
+            entity,
             player.map,
             WarpParams {
                 initial: true,
@@ -509,13 +504,13 @@ impl GameServer {
 
         // Send welcome message
         self.send(
-            client_id,
+            entity,
             &Packet::ChatLog(ChatChannel::Server, "Welcome to Game™!".to_owned()),
         );
 
         // Send join message
         self.send_exclude(
-            client_id,
+            entity,
             &Packet::ChatLog(ChatChannel::Server, format!("{} has joined the game.", &player.name)),
         );
     }
@@ -535,15 +530,15 @@ impl GameServer {
         let player_boxes = self
             .players
             .iter()
-            .map(|(client_id, player)| {
+            .map(|(&entity, player)| {
                 (
-                    *client_id,
+                    entity,
                     Box2D::from_origin_and_size(player.position + sprite_offset, sprite_size),
                 )
             })
             .collect::<Vec<_>>();
 
-        for (client_id, player) in &mut self.players {
+        for (&entity, player) in &mut self.players {
             let map = &self.maps[&player.map];
             if let Some(velocity) = player.velocity {
                 let offset = velocity * dt.as_secs_f32();
@@ -563,7 +558,7 @@ impl GameServer {
 
                         if let Some(map_id) = map_id {
                             to_warp.push((
-                                *client_id,
+                                entity,
                                 map_id,
                                 WarpParams {
                                     position: Some(new_position),
@@ -587,8 +582,8 @@ impl GameServer {
 
                     valid &= check_collision_with(
                         player.position,
-                        player_boxes.iter().filter(|(cid, _box2d)| cid != client_id),
-                        |(_cid, box2d)| *box2d,
+                        player_boxes.iter().filter(|(id, _box2d)| *id != entity),
+                        |(_id, box2d)| *box2d,
                     )
                     .is_none();
                 }
@@ -613,7 +608,7 @@ impl GameServer {
                 }) = warp
                 {
                     to_warp.push((
-                        *client_id,
+                        entity,
                         *map_id,
                         WarpParams {
                             position: Some((*position).into()),
@@ -625,9 +620,9 @@ impl GameServer {
             }
         }
 
-        for (client_id, map_id, params) in to_warp {
+        for (entity, map_id, params) in to_warp {
             self.validate_map(map_id);
-            self.warp_player(client_id, map_id, params);
+            self.warp_player(entity, map_id, params);
         }
     }
 
@@ -639,40 +634,40 @@ impl GameServer {
     }
 
     /// Warps the player to a specific map, sending all the correct packets
-    fn warp_player(&mut self, client_id: ClientId, map_id: MapId, params: WarpParams) {
-        if !self.players.contains_key(&client_id) {
+    fn warp_player(&mut self, entity: Entity, map_id: MapId, params: WarpParams) {
+        if !self.players.contains_key(&entity) {
             return;
         }
 
-        let old_map = self.players[&client_id].map;
+        let old_map = self.players[&entity].map;
 
         // check if we're actually changing maps, or if we're just moving to a new position.
-        if params.initial || self.players[&client_id].map != map_id {
+        if params.initial || self.players[&entity].map != map_id {
             if !params.initial {
-                self.send_map_except(old_map, client_id, &Packet::RemoveData(client_id));
+                self.send_map_except(old_map, entity, &Packet::RemoveData(entity));
             }
 
-            self.players.get_mut(&client_id).unwrap().map = map_id;
+            self.players.get_mut(&entity).unwrap().map = map_id;
             let cache_key = self.maps[&map_id].settings.cache_key;
 
-            self.send(client_id, &Packet::ChangeMap(map_id, cache_key));
+            self.send(entity, &Packet::ChangeMap(map_id, cache_key));
 
             let packets = self
                 .players
                 .iter()
                 .filter(|(_, player_data)| player_data.map == map_id)
-                .map(|(&cid, data)| Packet::PlayerData(cid, data.clone().into()))
+                .map(|(&id, data)| Packet::PlayerData(id, data.clone().into()))
                 .collect::<Vec<_>>();
 
             for packet in packets {
-                self.send(client_id, &packet);
+                self.send(entity, &packet);
             }
 
-            let player_data = self.players[&client_id].clone();
-            self.send_to_map(map_id, &Packet::PlayerData(client_id, player_data.into()));
+            let player_data = self.players[&entity].clone();
+            self.send_to_map(map_id, &Packet::PlayerData(entity, player_data.into()));
         }
 
-        if let Some(player) = self.players.get_mut(&client_id) {
+        if let Some(player) = self.players.get_mut(&entity) {
             if let Some(position) = params.position {
                 player.position = position;
             }
@@ -682,7 +677,7 @@ impl GameServer {
             }
 
             let packet = Packet::PlayerMove {
-                client_id,
+                entity,
                 position: player.position.into(),
                 direction: player.direction,
                 velocity: player.velocity.map(Into::into),
@@ -696,6 +691,13 @@ impl GameServer {
     pub fn maintain(&mut self) {
         // lol
     }
+
+    fn next_entity(&mut self) -> Entity {
+        let idx = self.next_idx;
+        self.next_idx += 1;
+
+        Entity(idx)
+    }
 }
 
 /// Network convenience
@@ -704,52 +706,62 @@ impl GameServer {
         self.handler.as_ref().unwrap().network()
     }
 
-    pub fn send(&self, client_id: ClientId, message: &Packet) {
-        let endpoint = self.peer_map[&client_id];
+    pub fn send_to(&self, endpoint: Endpoint, message: &Packet) {
         let bytes = rmp_serde::to_vec(&message).unwrap();
         self.network().send(endpoint, &bytes);
     }
 
-    pub fn send_exclude(&self, exclude: ClientId, message: &Packet) {
+    pub fn send(&self, entity: Entity, message: &Packet) {
+        if let Some(endpoint) = self.peer_map.get_by_left(&entity) {
+            let bytes = rmp_serde::to_vec(&message).unwrap();
+            self.network().send(*endpoint, &bytes);
+        }
+    }
+
+    #[inline]
+    fn send_bytes(&self, entity: Entity, bytes: &[u8]) {
+        if let Some(endpoint) = self.peer_map.get_by_left(&entity) {
+            self.network().send(*endpoint, bytes);
+        }
+    }
+
+    pub fn send_exclude(&self, exclude: Entity, message: &Packet) {
         let bytes = rmp_serde::to_vec(&message).unwrap();
-        for (&cid, &endpoint) in &self.peer_map {
-            if cid != exclude {
+        for (&entity, &endpoint) in &self.peer_map {
+            if entity != exclude {
                 self.network().send(endpoint, &bytes);
             }
         }
     }
 
-    pub fn send_list(&self, client_list: &[ClientId], message: &Packet) {
+    pub fn send_list(&self, entity_list: &[Entity], message: &Packet) {
         let bytes = rmp_serde::to_vec(&message).unwrap();
-        for client_id in client_list {
-            let endpoint = self.peer_map[client_id];
-            self.network().send(endpoint, &bytes);
+        for entity in entity_list {
+            self.send_bytes(*entity, &bytes);
         }
     }
 
     pub fn send_to_map(&self, map_id: MapId, message: &Packet) {
         let bytes = rmp_serde::to_vec(&message).unwrap();
-        for (client_id, player) in &self.players {
+        for (entity, player) in &self.players {
             if player.map == map_id {
-                let endpoint = self.peer_map[client_id];
-                self.network().send(endpoint, &bytes);
+                self.send_bytes(*entity, &bytes);
             }
         }
     }
 
-    pub fn send_map_except(&self, map_id: MapId, exclude_id: ClientId, message: &Packet) {
+    pub fn send_map_except(&self, map_id: MapId, exclude_id: Entity, message: &Packet) {
         let bytes = rmp_serde::to_vec(&message).unwrap();
-        for (client_id, player) in &self.players {
-            if player.map == map_id && *client_id != exclude_id {
-                let endpoint = self.peer_map[client_id];
-                self.network().send(endpoint, &bytes);
+        for (entity, player) in &self.players {
+            if player.map == map_id && *entity != exclude_id {
+                self.send_bytes(*entity, &bytes);
             }
         }
     }
 
     pub fn send_all(&self, message: &Packet) {
         let bytes = rmp_serde::to_vec(&message).unwrap();
-        for &endpoint in self.peer_map.values() {
+        for &endpoint in self.peer_map.right_values() {
             self.network().send(endpoint, &bytes);
         }
     }

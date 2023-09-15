@@ -3,23 +3,23 @@ use std::{collections::HashMap, fmt::Display};
 use mint::{Point2, Vector2};
 use serde::{Deserialize, Serialize};
 
-use super::{ChatChannel, ClientId, Direction, Map, MapSettings, Player, PlayerFlags, MapId};
+use super::{ChatChannel, Entity, Direction, Map, MapSettings, Player, PlayerFlags, MapId};
 
 /// Packets sent from the server to the client
 #[derive(Clone, Serialize, Deserialize, PartialEq, Debug)]
 pub enum Packet {
-    JoinGame(ClientId),
+    JoinGame(Entity),
     FailedJoin(FailJoinReason),
-    PlayerData(ClientId, Player),
-    RemoveData(ClientId),
+    PlayerData(Entity, Player),
+    RemoveData(Entity),
     PlayerMove {
-        client_id: ClientId,
+        entity: Entity,
         position: Point2<f32>,
         direction: Direction,
         velocity: Option<Vector2<f32>>,
     },
     ChatLog(ChatChannel, String),
-    ChangeMap(MapId, i64),
+    ChangeMap(MapId, u64),
     MapData(Box<Map>),
     MapEditor {
         maps: HashMap<MapId, String>,
@@ -28,7 +28,7 @@ pub enum Packet {
         height: u32,
         settings: MapSettings,
     },
-    Flags(ClientId, PlayerFlags),
+    Flags(Entity, PlayerFlags),
 }
 
 #[derive(Copy, Clone, Serialize, Deserialize, PartialEq, Debug)]

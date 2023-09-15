@@ -10,9 +10,9 @@ pub mod server;
 
 #[derive(Serialize, Deserialize, PartialEq, Debug, Eq, Hash, Clone, Copy)]
 #[serde(transparent)]
-pub struct ClientId(pub u64);
+pub struct Entity(pub u64);
 
-impl From<u64> for ClientId {
+impl From<u64> for Entity {
     fn from(id: u64) -> Self {
         Self(id)
     }
@@ -179,7 +179,7 @@ pub struct MapSettings {
     pub tileset: String,
     pub music: Option<String>,
     pub warps: BoundryWarps,
-    pub cache_key: i64,
+    pub cache_key: u64,
 }
 
 impl Default for MapSettings {
@@ -189,7 +189,7 @@ impl Default for MapSettings {
             tileset: String::from("default.png"),
             music: None,
             warps: BoundryWarps::default(),
-            cache_key: i64::MIN,
+            cache_key: 0,
         }
     }
 }

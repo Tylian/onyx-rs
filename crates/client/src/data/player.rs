@@ -1,5 +1,5 @@
 use common::{
-    network::{ClientId, Direction, Player as NetworkPlayer, PlayerFlags},
+    network::{Entity, Direction, Player as NetworkPlayer, PlayerFlags},
     SPRITE_SIZE, TILE_SIZE,
 };
 // use macroquad::prelude::*;
@@ -43,7 +43,7 @@ impl Animation {
 }
 
 pub struct Player {
-    pub id: ClientId,
+    pub id: Entity,
     pub name: String,
     pub position: Vec2,
     pub velocity: Option<Vec2>,
@@ -55,7 +55,7 @@ pub struct Player {
 }
 
 impl Player {
-    pub fn from_network(id: ClientId, data: NetworkPlayer, time: f32) -> Self {
+    pub fn from_network(id: Entity, data: NetworkPlayer, time: f32) -> Self {
         Self {
             id,
             name: data.name,

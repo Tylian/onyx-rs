@@ -210,7 +210,7 @@ impl State for TitleState {
                     log::debug!("{message:?}");
 
                     match message {
-                        Packet::JoinGame(client_id) => {
+                        Packet::JoinGame(entity) => {
                             let settings = Settings {
                                 address: self.settings.address.clone(),
                                 username: self.username.clone(),
@@ -223,7 +223,7 @@ impl State for TitleState {
 
                             let network = self.network.take().unwrap();
                             ctx.next_state_fn = Some(Box::new(move |ctx| {
-                                    Box::new(GameState::new(client_id, network, ctx))
+                                    Box::new(GameState::new(entity, network, ctx))
                             }));
                         }
                         Packet::FailedJoin(reason) => {

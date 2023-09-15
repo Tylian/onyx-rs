@@ -15,7 +15,7 @@ pub struct Network {
 impl Network {
     pub fn connect(addr: impl ToRemoteAddr) -> Self {
         let (handler, listener) = node::split::<()>();
-        let (endpoint, _local_addr) = handler.network().connect(Transport::Ws, addr).unwrap();
+        let (endpoint, _local_addr) = handler.network().connect(Transport::FramedTcp, addr).unwrap();
 
         let (task, receive) = listener.enqueue();
 
