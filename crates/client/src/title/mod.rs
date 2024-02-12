@@ -1,21 +1,17 @@
 use std::{path::PathBuf};
 
 use common::network::client::Packet;
+use ggez::{Context, GameResult, graphics::{self, Color, Canvas, DrawParam}};
 use message_io::node::StoredNetEvent;
-use notan::{
-    egui::{self, *},
-    log,
-    prelude::*,
-};
 use serde::{Deserialize, Serialize};
+use ggegui::{egui, Gui, GuiContext};
 
-use crate::{game::GameState, network::Network, state::{UpdateContext, DrawContext, SetupContext, EventContext}};
+use crate::{
+    game::GameScene, network::Network, scene::{Scene, SceneTransition}, GameEvent
+};
 
-use super::State;
-
-pub struct TitleState {
-    settings: Settings,
-    network: Option<Network>,
+pub struct TitleScene {
+    gui: Gui,
 
     loading: bool,
     tab: UiTab,
@@ -25,14 +21,18 @@ pub struct TitleState {
     save_password: bool,
     character_name: String,
     error: Option<String>,
+
+    // Settings is at the bottom because of borrow checker shenanigans, you're welcome past me.
+    network: Option<Network>,
+    settings: Settings,
 }
 
-impl TitleState {
-    pub fn new_erased(_ctx: &mut SetupContext) -> Box<dyn State> {
+impl TitleScene {
+    pub fn new(ctx: &mut Context) -> GameResult<Self> {
         let settings = Settings::load().unwrap_or_default();
 
-        Box::new(Self {
-            network: Some(Network::connect(&settings.address)),
+        Ok(Self {
+            gui: Gui::new(ctx),
 
             loading: true,
             tab: UiTab::Login,
@@ -42,11 +42,15 @@ impl TitleState {
             password: settings.password.clone().unwrap_or_default(),
             character_name: String::new(),
             error: None,
+
+            network: Some(Network::connect(&settings.address)),
             settings,
         })
     }
 
-    pub fn ui(&mut self, ctx: &egui::Context) {
+    pub fn ui(&mut self, ctx: &mut GuiContext) {
+        use egui::*;
+
         Window::new("Login")
             .anchor(Align2::CENTER_CENTER, [0.0, 0.0])
             .resizable(false)
@@ -105,6 +109,8 @@ impl TitleState {
     }
 
     pub fn ui_login(&mut self, ui: &mut egui::Ui) {
+        use egui::*;
+
         Grid::new("login").num_columns(2).show(ui, |ui| {
             ui.label("Username:");
             ui.text_edit_singleline(&mut self.username);
@@ -118,7 +124,9 @@ impl TitleState {
             ui.checkbox(&mut self.save_password, "Save password?");
             ui.end_row();
         });
+
         ui.separator();
+
         ui.horizontal(|ui| {
             if ui.button("Login").clicked() {
                 if let Some(network) = self.network.as_ref() {
@@ -140,6 +148,8 @@ impl TitleState {
     }
 
     pub fn ui_create(&mut self, ui: &mut egui::Ui) {
+        use egui::*;
+
         Grid::new("create").num_columns(2).show(ui, |ui| {
             ui.label("Username:");
             ui.text_edit_singleline(&mut self.username);
@@ -176,17 +186,28 @@ impl TitleState {
     }
 }
 
-impl State for TitleState {
-    fn draw(&mut self, ctx: &mut DrawContext) {
-        let mut output = ctx.plugins.egui(|egui_ctx| self.ui(egui_ctx));
-        output.clear_color(Color::BLACK);
+impl Scene<GameEvent> for TitleScene {
+    fn draw(&mut self, ctx: &mut Context) -> GameResult<()> {
+        let mut canvas = Canvas::from_frame(ctx, Color::BLACK);
+        canvas.draw(
+			&self.gui, 
+			DrawParam::default().dest(glam::Vec2::ZERO),
+		);
+        canvas.finish(ctx)
         
-        ctx.gfx.render(&output);
+        // let mut output = ctx.plugins.egui(|egui_ctx| self.ui(egui_ctx));
+        // output.clear_color(Color::BLACK);
+        
+        // ctx.gfx.render(&output);
     }
 
-    fn update(&mut self, ctx: &mut UpdateContext) {
+    fn update(&mut self, ctx: &mut Context) -> GameResult<SceneTransition<GameEvent>> {
+        let mut gui_ctx = self.gui.ctx();
+        self.ui(&mut gui_ctx);
+        self.gui.update(ctx);
+
         let Some(network) = self.network.as_mut() else {
-            return;
+            return Ok(SceneTransition::None);
         };
 
         if let Some(event) = network.try_receive() {
@@ -207,7 +228,7 @@ impl State for TitleState {
                 StoredNetEvent::Accepted(_, _) => unreachable!(),
                 StoredNetEvent::Message(_, bytes) => {
                     let message = rmp_serde::from_slice(&bytes).unwrap();
-                    log::debug!("{message:?}");
+                    // log::debug!("{message:?}");
 
                     match message {
                         Packet::JoinGame(entity) => {
@@ -222,9 +243,8 @@ impl State for TitleState {
                             }
 
                             let network = self.network.take().unwrap();
-                            ctx.next_state_fn = Some(Box::new(move |ctx| {
-                                    Box::new(GameState::new(entity, network, ctx))
-                            }));
+                            let next_scene = GameScene::new(entity, network, ctx);
+                            return Ok(SceneTransition::switch(next_scene));
                         }
                         Packet::FailedJoin(reason) => {
                             self.error = Some(reason.to_string());
@@ -241,15 +261,17 @@ impl State for TitleState {
                 }
             }
         }
+
+        Ok(SceneTransition::None)
     }
 
-    fn event(&mut self, ctx: &mut EventContext) {
-        use notan::Event;
-        if ctx.event == Event::Exit {
+    fn event(&mut self, ctx: &mut ggez::Context, event: GameEvent) -> GameResult {
+        if event == GameEvent::Quit {
             if let Some(network) = self.network.as_mut() {
                 network.stop();
             }
         }
+        Ok(())
     }
 }
 
