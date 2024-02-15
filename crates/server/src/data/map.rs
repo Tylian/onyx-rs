@@ -25,7 +25,7 @@ pub struct Map {
 
 impl Map {
     pub fn path(id: MapId) -> PathBuf {
-        common::server_path(format!("maps/{}.bin", id.0))
+        PathBuf::from(format!("maps/{}.bin", id.0))
     }
 
     pub fn load(id: MapId) -> Result<Self> {
@@ -34,7 +34,7 @@ impl Map {
     }
 
     pub fn load_all() -> Result<HashMap<MapId, Self>> {
-        let path = common::server_path("maps");
+        let path = PathBuf::from("maps");
 
         let mut maps = HashMap::new();
         for entry in std::fs::read_dir(path)? {

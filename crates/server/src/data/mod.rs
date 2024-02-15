@@ -18,7 +18,7 @@ pub struct Config {
 
 impl Config {
     pub fn path() -> PathBuf {
-        common::server_path("config.toml")
+        PathBuf::from("config.toml")
     }
     pub fn load() -> Result<Self> {
         let contents = std::fs::read_to_string(Self::path())?;
@@ -46,7 +46,7 @@ pub struct NameCache {
 
 impl NameCache {
     pub fn path() -> PathBuf {
-        common::server_path("names.cache")
+        PathBuf::from("names.cache")
     }
 
     pub fn load() -> Result<Self> {

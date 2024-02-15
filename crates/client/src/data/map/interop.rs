@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use common::network::{Map as NetworkMap, MapLayer, Tile as NetworkTile, Zone as NetworkZone};
 use mint::{Point2, Vector2};
 use ndarray::Array2;
-use notan::math::*;
+use ggez::graphics::Rect;
 use strum::EnumCount;
 use thiserror::Error;
 
@@ -97,12 +97,12 @@ impl From<NetworkTile> for Tile {
 impl From<NetworkZone> for Zone {
     fn from(other: NetworkZone) -> Self {
         Self {
-            position: Rect {
-                x: other.position.x,
-                y: other.position.y,
-                width: other.size.x,
-                height: other.size.y,
-            },
+            position: Rect::new(
+                other.position.x,
+                other.position.y,
+                other.size.x,
+                other.size.y
+            ),
             data: other.data,
         }
     }
@@ -116,8 +116,8 @@ impl From<Zone> for NetworkZone {
                 y: other.position.y,
             },
             size: Vector2 {
-                x: other.position.width,
-                y: other.position.height,
+                x: other.position.w,
+                y: other.position.h,
             },
             data: other.data,
         }

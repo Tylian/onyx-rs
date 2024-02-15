@@ -1,6 +1,5 @@
 use common::network::ChatChannel;
-use notan::egui::*;
-use notan::egui::{Color32, ComboBox, Key, Response, RichText, ScrollArea, Ui, Window};
+use ggegui::egui::{Align2, Color32, ComboBox, Context, Key, Response, RichText, ScrollArea, Ui, Window};
 use egui_extras::{Size, StripBuilder};
 // use macroquad::window::screen_height;
 
@@ -118,7 +117,7 @@ impl ChatWindow {
             });
 
         if let Some((text, button)) = text.zip(button) {
-            if (text.lost_focus() && ui.input().key_pressed(Key::Enter)) || button.clicked() {
+            if (text.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter))) || button.clicked() {
                 let message = std::mem::take(&mut self.message);
                 self.send_message = Some((self.channel, message));
                 text.request_focus();

@@ -18,6 +18,9 @@ pub struct Player {
     pub velocity: Option<Vector2D<f32>>,
 
     #[serde(skip)]
+    pub last_movement_update: f32, // 
+
+    #[serde(skip)]
     pub flags: PlayerFlags,
 }
 
@@ -33,6 +36,7 @@ impl Default for Player {
             map: MapId::default(),
             flags: PlayerFlags::default(),
             velocity: None,
+            last_movement_update: 0.0,
         }
     }
 }
@@ -52,7 +56,7 @@ impl From<Player> for NetworkPlayer {
 
 impl Player {
     pub fn path(name: &str) -> PathBuf {
-        common::server_path(format!("players/{name}.toml"))
+        PathBuf::from(format!("players/{name}.toml"))
     }
     pub fn load(name: &str) -> Result<Self> {
         let path = Self::path(name);
@@ -85,6 +89,7 @@ impl Player {
             map,
             velocity: None,
             flags: PlayerFlags::default(),
+            last_movement_update: 0.0
         }
     }
 }

@@ -1,13 +1,13 @@
-use std::{path::PathBuf};
+use std::path::PathBuf;
 
 use common::network::client::Packet;
-use ggez::{Context, GameResult, graphics::{self, Color, Canvas, DrawParam}};
+use ggez::{Context, GameResult, graphics::{Color, Canvas, DrawParam}};
 use message_io::node::StoredNetEvent;
 use serde::{Deserialize, Serialize};
 use ggegui::{egui, Gui, GuiContext};
 
 use crate::{
-    game::GameScene, network::Network, scene::{Scene, SceneTransition}, GameEvent
+    game::GameScene, network::Network, scene::{Scene, SceneTransition}, GameEvent, GameState
 };
 
 pub struct TitleScene {
@@ -186,8 +186,8 @@ impl TitleScene {
     }
 }
 
-impl Scene<GameEvent> for TitleScene {
-    fn draw(&mut self, ctx: &mut Context) -> GameResult<()> {
+impl Scene<GameState, GameEvent> for TitleScene {
+    fn draw(&mut self, ctx: &mut Context, _state: &mut GameState) -> GameResult<()> {
         let mut canvas = Canvas::from_frame(ctx, Color::BLACK);
         canvas.draw(
 			&self.gui, 
@@ -201,7 +201,7 @@ impl Scene<GameEvent> for TitleScene {
         // ctx.gfx.render(&output);
     }
 
-    fn update(&mut self, ctx: &mut Context) -> GameResult<SceneTransition<GameEvent>> {
+    fn update(&mut self, ctx: &mut Context, _state: &mut GameState) -> GameResult<SceneTransition<GameState, GameEvent>> {
         let mut gui_ctx = self.gui.ctx();
         self.ui(&mut gui_ctx);
         self.gui.update(ctx);
@@ -265,11 +265,12 @@ impl Scene<GameEvent> for TitleScene {
         Ok(SceneTransition::None)
     }
 
-    fn event(&mut self, ctx: &mut ggez::Context, event: GameEvent) -> GameResult {
-        if event == GameEvent::Quit {
-            if let Some(network) = self.network.as_mut() {
+    fn event(&mut self, _ctx: &mut ggez::Context, _state: &mut GameState, event: GameEvent) -> GameResult {
+        match event {
+            GameEvent::Quit => if let Some(network) = self.network.as_mut() {
                 network.stop();
-            }
+            },
+            GameEvent::TextInput(character) => self.gui.input.text_input_event(character),
         }
         Ok(())
     }
@@ -292,7 +293,7 @@ struct Settings {
 
 impl Settings {
     pub fn path() -> PathBuf {
-        common::client_path("settings.toml")
+        PathBuf::from("./settings.toml")
     }
 
     pub fn load() -> anyhow::Result<Self> {
@@ -311,6 +312,7 @@ impl Settings {
 impl Default for Settings {
     fn default() -> Self {
         Self {
+            //address: "127.0.0.1:20371".to_owned(),
             address: "66.228.47.52:20371".to_owned(),
             username: String::new(),
             password: None,

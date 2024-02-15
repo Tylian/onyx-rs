@@ -2,8 +2,7 @@ mod data;
 mod player;
 
 use std::{
-    collections::{hash_map::Entry, HashMap, HashSet},
-    time::{Duration, Instant},
+    collections::{hash_map::Entry, HashMap, HashSet}, path::PathBuf, time::{Duration, Instant}
 };
 
 use anyhow::{bail, Context, Result};
@@ -30,6 +29,12 @@ use sha2::{Digest, Sha256};
 use crate::data::{Config, Map, NameCache, Player};
 
 fn main() -> Result<()> {
+    if let Ok(runtime) = std::env::var("RUNTIME_PATH") {
+        let runtime = PathBuf::from(runtime).join("server");
+        log::warn!("Setting runtime to {}", runtime.display());
+        std::env::set_current_dir(runtime).unwrap();
+    }
+
     #[cfg(debug_assertions)]
     env_logger::builder()
         .filter_level(LevelFilter::Debug)
@@ -55,7 +60,8 @@ struct GameServer {
     endpoints: HashSet<Endpoint>,
     next_idx: u64,
     maps: HashMap<MapId, Map>,
-    time: Instant,
+    start: Instant,
+    time_since_start: Duration,
     /// Time since last update
     dt: Duration,
     handler: Option<NodeHandler<()>>,
@@ -77,7 +83,8 @@ impl GameServer {
             peer_map: BiMap::new(),
             endpoints: HashSet::new(),
             next_idx: 0,
-            time: Instant::now(),
+            start: Instant::now(),
+            time_since_start: Duration::ZERO,
             dt: Duration::ZERO,
             handler: None,
             maps,
@@ -98,13 +105,16 @@ impl GameServer {
 
         let (_task, mut receive) = listener.enqueue();
 
+        self.start = Instant::now();
+
         loop {
-            let now = Instant::now();
-            let dt = now - self.time;
-            self.time = now;
+            let since_start = self.start.elapsed();
+            let dt = since_start - self.time_since_start;
+
+            self.time_since_start = since_start;
             self.dt = dt;
 
-            if let Some(event) = receive.try_receive() {
+            while let Some(event) = receive.try_receive() {
                 match event.network() {
                     StoredNetEvent::Connected(_, _) => unreachable!(),
                     StoredNetEvent::Accepted(endpoint, _listener) => {
@@ -140,7 +150,7 @@ impl GameServer {
 
             // finalizing
             self.maintain();
-            std::thread::sleep(Duration::from_secs_f64(1.0 / 60.0));
+            std::thread::sleep(Duration::from_secs_f64(1.0 / 30.0));
         }
     }
 
@@ -312,14 +322,14 @@ impl GameServer {
                     player.velocity = velocity.map(Into::into);
                     player.direction = direction;
 
-                    let packet = Packet::PlayerMove {
-                        entity,
-                        position,
-                        direction,
-                        velocity,
-                    };
+                    // let packet = Packet::PlayerMove {
+                    //     entity,
+                    //     position,
+                    //     direction,
+                    //     velocity,
+                    // };
 
-                    self.send_map_except(map_id, entity, &packet);
+                    // self.send_map_except(map_id, entity, &packet);
                 } else {
                     // warping them to the default will just update them with the server truth
                     self.warp_player(entity, map_id, WarpParams::default());
@@ -424,7 +434,7 @@ impl GameServer {
                     .find_map(|(id, player)| (player.name == who).then_some(id))
                     .ok_or("Could not find the player, are they online?")?;
 
-                let mut player = self.players.get_mut(&other_entity).unwrap();
+                let player = self.players.get_mut(&other_entity).unwrap();
                 player.sprite = sprite;
                 if let Err(e) = player.save() {
                     log::error!("Couldn't save player: {e}");
@@ -520,78 +530,79 @@ impl GameServer {
     }
 
     fn update_players(&mut self) {
-        let dt = self.dt;
+        // let dt = self.dt;
 
         let mut to_warp = Vec::new();
+        let mut position_updates = Vec::new();
 
-        let sprite_size = Size2D::new(SPRITE_SIZE as f32, SPRITE_SIZE as f32 / 2.0);
-        let sprite_offset = Vector2D::new(0.0, SPRITE_SIZE as f32 / 2.0);
+        // let sprite_size = Size2D::new(SPRITE_SIZE as f32, SPRITE_SIZE as f32 / 2.0);
+        // let sprite_offset = Vector2D::new(0.0, SPRITE_SIZE as f32 / 2.0);
 
-        let player_boxes = self
-            .players
-            .iter()
-            .map(|(&entity, player)| {
-                (
-                    entity,
-                    Box2D::from_origin_and_size(player.position + sprite_offset, sprite_size),
-                )
-            })
-            .collect::<Vec<_>>();
+        // let player_boxes = self
+        //     .players
+        //     .iter()
+        //     .map(|(&entity, player)| {
+        //         (
+        //             entity,
+        //             Box2D::from_origin_and_size(player.position + sprite_offset, sprite_size),
+        //         )
+        //     })
+        //     .collect::<Vec<_>>();
 
         for (&entity, player) in &mut self.players {
             let map = &self.maps[&player.map];
-            if let Some(velocity) = player.velocity {
-                let offset = velocity * dt.as_secs_f32();
-                let new_position = player.position + offset;
-                let mut valid = true;
+        //     if let Some(velocity) = player.velocity {
+        //         let offset = velocity * dt.as_secs_f32();
+        //         let new_position = player.position + offset;
+        //         let mut valid = true;
 
-                // map bounds
-                if !player.flags.in_map_editor {
-                    // map warps, lots of copy paste code lol
-                    if let Some((direction, new_position)) = check_edge_warp(map, new_position) {
-                        let map_id = match direction {
-                            Direction::North => map.settings.warps.north,
-                            Direction::South => map.settings.warps.south,
-                            Direction::East => map.settings.warps.east,
-                            Direction::West => map.settings.warps.west,
-                        };
+        //         // map bounds
+        //         if !player.flags.in_map_editor {
+        //             // map warps, lots of copy paste code lol
+        //             if let Some((direction, new_position)) = check_edge_warp(map, new_position) {
+        //                 let map_id = match direction {
+        //                     Direction::North => map.settings.warps.north,
+        //                     Direction::South => map.settings.warps.south,
+        //                     Direction::East => map.settings.warps.east,
+        //                     Direction::West => map.settings.warps.west,
+        //                 };
 
-                        if let Some(map_id) = map_id {
-                            to_warp.push((
-                                entity,
-                                map_id,
-                                WarpParams {
-                                    position: Some(new_position),
-                                    ..Default::default()
-                                },
-                            ));
-                        }
+        //                 if let Some(map_id) = map_id {
+        //                     to_warp.push((
+        //                         entity,
+        //                         map_id,
+        //                         WarpParams {
+        //                             position: Some(new_position),
+        //                             ..Default::default()
+        //                         },
+        //                     ));
+        //                 }
 
-                        valid = false;
-                    }
-                }
+        //                 valid = false;
+        //             }
+        //         }
 
-                if !player.flags.in_map_editor {
-                    // block zones
-                    valid &= check_collision_with(
-                        player.position,
-                        map.zones.iter().filter(|zone| zone.data == ZoneData::Blocked),
-                        |zone| Box2D::from_origin_and_size(zone.position.into(), zone.size.into()),
-                    )
-                    .is_none();
+        //         if !player.flags.in_map_editor {
+        //             // block zones
+        //             valid &= check_collision_with(
+        //                 player.position,
+        //                 map.zones.iter().filter(|zone| zone.data == ZoneData::Blocked),
+        //                 |zone| Box2D::from_origin_and_size(zone.position.into(), zone.size.into()),
+        //             )
+        //             .is_none();
 
-                    valid &= check_collision_with(
-                        player.position,
-                        player_boxes.iter().filter(|(id, _box2d)| *id != entity),
-                        |(_id, box2d)| *box2d,
-                    )
-                    .is_none();
-                }
+        //             valid &= check_collision_with(
+        //                 player.position,
+        //                 player_boxes.iter().filter(|(id, _box2d)| *id != entity),
+        //                 |(_id, box2d)| *box2d,
+        //             )
+        //             .is_none();
+        //         }
 
-                if valid {
-                    player.position = new_position;
-                }
-            }
+        //         if valid {
+        //             player.position = new_position;
+        //         }
+        //     }
 
             if !player.flags.in_map_editor {
                 let warp = check_collision_with(
@@ -605,8 +616,7 @@ impl GameServer {
                 if let Some(Zone {
                     data: ZoneData::Warp(map_id, position, direction),
                     ..
-                }) = warp
-                {
+                }) = warp {
                     to_warp.push((
                         entity,
                         *map_id,
@@ -618,6 +628,24 @@ impl GameServer {
                     ));
                 }
             }
+
+             // TODO: Check for dirty
+             const UPDATE_RATE: f32 = 1.0 / 20.0;
+             if self.time_since_start.as_secs_f32() >= player.last_movement_update + UPDATE_RATE {
+                 let packet = Packet::PlayerMove {
+                     entity,
+                     position: player.position.into(),
+                     direction: player.direction,
+                     velocity: player.velocity.map(|velocity| velocity.into()),
+                 };
+     
+                 position_updates.push((player.map, entity, packet));
+             }
+        }
+
+        // TODO Map-warp ordering?
+        for (map, entity, packet) in position_updates {
+            self.send_map_except(map, entity, &packet);
         }
 
         for (entity, map_id, params) in to_warp {

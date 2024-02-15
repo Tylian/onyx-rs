@@ -4,14 +4,17 @@ use std::path::PathBuf;
 use anyhow::Result;
 use common::network::{Map as NetworkMap, MapLayer, MapSettings, TileAnimation, ZoneData, MapId};
 use common::TILE_SIZE;
+use ggez::graphics::{self, Color, DrawParam, InstanceArray, Rect};
+use ggez::Context;
 use ndarray::{azip, indices, Array2, Zip};
-use notan::{draw::*, math::*, prelude::*};
+// use notan::{draw::*, math::*, prelude::*};
+use ggez::{graphics::Canvas, glam::*};
 use strum::{EnumCount, IntoEnumIterator};
 
-use crate::assets::AssetCache;
+use crate::AssetCache;
 // use crate::assets::Assets;
 // use crate::utils::draw_text_shadow;
-use crate::utils::{ping_pong, RectExt, draw_text_shadow, rect};
+use crate::utils::{ping_pong/* , RectExt, draw_text_shadow, rect */};
 
 mod interop;
 
@@ -92,7 +95,7 @@ pub struct Tile {
 }
 
 impl Tile {
-    pub fn draw(&self, draw: &mut Draw, position: Vec2, assets: &mut AssetCache, time: f32) {
+    pub fn draw(&self, batch: &mut InstanceArray, position: Vec2, assets: &mut AssetCache, time: f32) {
         let mut uv = self.texture * TILE_SIZE;
 
         if let Some(animation) = self.animation {
@@ -105,13 +108,10 @@ impl Tile {
             }
         }
 
-        let uv = uv.as_vec2();
-        let size = Vec2::splat(TILE_SIZE as f32);
-
-        draw.image(&assets.tileset.texture.lock().unwrap())
-            .position(position.x, position.y)
-            .size(TILE_SIZE as f32, TILE_SIZE as f32)
-            .crop(uv.into(), size.into());
+        let uv = assets.tileset.uv_rect(uv.x as u32, uv.y as u32, TILE_SIZE as u32, TILE_SIZE as u32);
+        batch.push(DrawParam::default()
+            .src(uv)
+            .dest(position));
     }
 }
 
@@ -132,13 +132,13 @@ impl AutoTile {
             ],
         }
     }
-    pub fn draw(&self, draw: &mut Draw, position: Vec2, animation: Option<TileAnimation>, assets: &mut AssetCache, time: f32) {
+    pub fn draw(&self, batch: &mut InstanceArray, position: Vec2, animation: Option<TileAnimation>, assets: &mut AssetCache, time: f32) {
         const A: Vec2 = vec2(0.0, 0.0);
         const B: Vec2 = vec2(24.0, 0.0);
         const C: Vec2 = vec2(0.0, 24.0);
         const D: Vec2 = vec2(24.0, 24.0);
 
-        let draw_subtile = |draw: &mut Draw, position: Vec2, uv: IVec2| {
+        let draw_subtile = |batch: &mut InstanceArray, position: Vec2, uv: IVec2| {
             let mut uv = uv * TILE_SIZE / 2;
 
             if let Some(animation) = animation {
@@ -151,20 +151,16 @@ impl AutoTile {
                 }
             }
 
-            let uv = uv.as_vec2();
-            let size = Vec2::splat(TILE_SIZE as f32 / 2.0);
-
-            draw.image(&assets.tileset.texture.lock().unwrap())
-                .position(position.x, position.y)
-                .size(TILE_SIZE as f32 / 2.0, TILE_SIZE as f32 / 2.0)
-                .crop(uv.into(), size.into());
-
+            let uv = assets.tileset.uv_rect(uv.x as u32, uv.y as u32, (TILE_SIZE / 2) as u32, (TILE_SIZE / 2) as u32);
+            batch.push(DrawParam::default()
+                .src(uv)
+                .dest(position));
         };
 
-        draw_subtile(draw, position + A, self.cache[0]);
-        draw_subtile(draw, position + B, self.cache[1]);
-        draw_subtile(draw, position + C, self.cache[2]);
-        draw_subtile(draw, position + D, self.cache[3]);
+        draw_subtile(batch, position + A, self.cache[0]);
+        draw_subtile(batch, position + B, self.cache[1]);
+        draw_subtile(batch, position + C, self.cache[2]);
+        draw_subtile(batch, position + D, self.cache[3]);
     }
 }
 
@@ -188,15 +184,25 @@ impl AttributeDataEx for ZoneData {
     }
 }
 
-pub fn draw_zone(draw: &mut Draw, position: Rect, data: &ZoneData, assets: &mut AssetCache) {
+#[allow(unused)]
+pub fn draw_zone(canvas: &mut Canvas, position: Rect, data: &ZoneData, assets: &mut AssetCache) {
     let color = data.color();
     let text = data.text();
 
-    draw.rect((position.x, position.y), (position.width, position.height))
-        .fill_color(color.with_alpha(0.4))
-        .fill()
-        .stroke_color(color)
-        .stroke(1.0);
+    // todo ggez::graphics::Mesh::new_rectangle
+
+    canvas.draw(
+        &graphics::Quad,
+        DrawParam::default()
+            .dest_rect(position)
+            .color(color)
+    );
+
+    // draw.rect((position.x, position.y), (position.width, position.height))
+    //     .fill_color(color.with_alpha(0.4))
+    //     .fill()
+    //     .stroke_color(color)
+    //     .stroke(1.0);
 
     // let Rect { x, y, w, h } = position;
     // draw_rectangle(x, y, w, h, Color::new(color.r, color.g, color.b, 0.4));
@@ -204,17 +210,17 @@ pub fn draw_zone(draw: &mut Draw, position: Rect, data: &ZoneData, assets: &mut 
 
     let text_pos = position.center();
 
-    draw_text_shadow(
-        draw,
-        &assets.font.lock().unwrap(),
-        &text,
-        text_pos,
-        |text| {
-            text.color(color)
-                .v_align_middle()
-                .h_align_center();
-        }
-    );
+    // draw_text_shadow(
+    //     draw,
+    //     &assets.font.lock().unwrap(),
+    //     &text,
+    //     text_pos,
+    //     |text| {
+    //         text.color(color)
+    //             .v_align_middle()
+    //             .h_align_center();
+    //     }
+    // );
 
     // draw_text_shadow(
     //     &text,
@@ -235,8 +241,8 @@ pub struct Zone {
 }
 
 impl Zone {
-    pub fn draw(&self, draw: &mut Draw, assets: &mut AssetCache) {
-        draw_zone(draw, self.position, &self.data, assets);
+    pub fn draw(&self, canvas: &mut Canvas, assets: &mut AssetCache) {
+        draw_zone(canvas, self.position, &self.data, assets);
     }
 }
 
@@ -253,7 +259,7 @@ pub struct Map {
 
 impl Map {
     pub fn cache_path(id: MapId) -> PathBuf {
-        common::client_path(format!("maps/{}.bin", id.0))
+        PathBuf::from(format!("maps/{}.bin", id.0))
     }
 
     pub fn from_cache(id: MapId) -> Result<Self> {
@@ -346,30 +352,34 @@ impl Map {
         self.layers[&layer].iter().map(Option::as_ref)
     }
 
-    pub fn draw_layer(&self, draw: &mut Draw, layer: MapLayer, assets: &mut AssetCache, time: f32) {
+    pub fn draw_layer(&self, ctx: &mut Context, canvas: &mut Canvas, layer: MapLayer, assets: &mut AssetCache, time: f32) {
+        let mut batch = InstanceArray::new(ctx, Some(assets.tileset.clone()));
+
         let layers = &self.layers[&layer];
         let autotiles = &self.autotiles[&layer];
         azip!((index (x, y), tile in layers, autotile in autotiles) {
             let position = ivec2(x as i32, y as i32);
             let screen_position = position.as_vec2() * TILE_SIZE as f32;
             if let Some(autotile) = autotile {
-                autotile.draw(draw, screen_position, tile.and_then(|t| t.animation), assets, time);
+                autotile.draw(&mut batch, screen_position, tile.and_then(|t| t.animation), assets, time);
             } else if let Some(tile) = tile {
-                tile.draw(draw, screen_position, assets, time);
+                tile.draw(&mut batch, screen_position, assets, time);
             }
         });
+
+        canvas.draw(&batch, DrawParam::default());
     }
 
     // why yes i am lazy
-    pub fn draw_layers(&self, draw: &mut Draw, layers: &[MapLayer], assets: &mut AssetCache, time: f32) {
+    pub fn draw_layers(&self, ctx: &mut Context, canvas: &mut Canvas, layers: &[MapLayer], assets: &mut AssetCache, time: f32) {
         for layer in layers.iter() {
-            self.draw_layer(draw, *layer, assets, time);
+            self.draw_layer(ctx, canvas, *layer, assets, time);
         }
     }
 
-    pub fn draw_zones(&self, draw: &mut Draw, assets: &mut AssetCache) {
+    pub fn draw_zones(&self, canvas: &mut Canvas, assets: &mut AssetCache) {
         for attrib in &self.zones {
-            attrib.draw(draw, assets);
+            attrib.draw(canvas, assets);
         }
     }
 
@@ -427,7 +437,7 @@ impl Map {
             layers.insert(layer, tiles);
         }
 
-        let map_rect = rect(
+        let map_rect = Rect::new(
             0.0,
             0.0,
             width as f32 * TILE_SIZE as f32,

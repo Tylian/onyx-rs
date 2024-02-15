@@ -3,7 +3,7 @@
 mod chat_window;
 mod map_editor;
 
-use notan::egui::*;
+use ggegui::egui::*;
 
 use common::SPRITE_SIZE;
 
@@ -17,7 +17,7 @@ pub fn dialog<R>(ctx: &Context, add_contents: impl FnOnce(&mut Ui) -> R) -> Inne
     // vaguely based on the following code, thanks!
     // https://github.com/4JX/mCubed/blob/8a3b0a1568cbca3c372416db9a82f69b088ae0c6/main/src/ui/widgets/screen_prompt.rs
     Area::new("prompt_bg").fixed_pos(Pos2::ZERO).show(ctx, |ui| {
-        let screen_rect = ctx.input().screen_rect;
+        let screen_rect = ctx.input(|i| i.screen_rect);
 
         ui.allocate_response(screen_rect.size(), Sense::click());
 
@@ -104,7 +104,7 @@ fn auto_complete<T: AsRef<str>>(ui: &mut Ui, popup_id: Id, suggestions: &[T], cu
 
     let text_edit = ui.text_edit_singleline(current);
     if text_edit.gained_focus() {
-        ui.memory().open_popup(popup_id);
+        ui.memory_mut(|m| m.open_popup(popup_id));
     }
 
     popup_below_widget(ui, popup_id, &text_edit, |ui| {
@@ -122,7 +122,7 @@ fn auto_complete<T: AsRef<str>>(ui: &mut Ui, popup_id: Id, suggestions: &[T], cu
 
     // crappy attempt at fixing a bug lmao
     if text_edit.lost_focus() {
-        ui.memory().close_popup();
+        ui.memory_mut(|m| m.close_popup());
     }
 }
 

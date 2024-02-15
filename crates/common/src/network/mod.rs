@@ -37,6 +37,27 @@ pub enum Direction {
 }
 
 impl Direction {
+    pub fn from_velocity(velocity: Vector2<f32>) -> Option<Self> {
+        if velocity == (Vector2 { x: 0.0, y: 0.0 }) {
+            return None
+        }
+
+        #[allow(clippy::collapsible_else_if)] // visual logic more important
+        if velocity.x.abs() > velocity.y.abs() {
+            if velocity.x > 0.0 {
+                Some(Direction::East)
+            } else {
+                Some(Direction::West)
+            }
+        } else {
+            if velocity.y > 0.0 {
+                Some(Direction::South)
+            } else {
+                Some(Direction::North)
+            }
+        }
+    }
+
     #[must_use]
     pub fn reverse(&self) -> Self {
         match self {
@@ -62,6 +83,7 @@ impl Direction {
             Direction::North => Vector2 { x: 0, y: -1 },
         }
     }
+    
 }
 
 impl Display for Direction {

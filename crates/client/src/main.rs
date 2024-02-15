@@ -1,33 +1,43 @@
-#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
-
-// mod assets;
-// mod data;
-// mod game;
+mod assets;
+mod data;
 mod network;
 mod scene;
 mod title;
 mod game;
-// mod utils;
+mod utils;
+
+use std::path::PathBuf;
 
 use ggez::conf::WindowSetup;
 use ggez::event::EventHandler;
 use ggez::{event, ContextBuilder};
-use ggez::graphics::{self, Color};
+use ggez::graphics::{self, Image};
 use ggez::{Context, GameResult};
 use ggez::glam::*;
 
-use scene::{Scene, SceneStack};
+use scene::SceneStack;
 use title::TitleScene;
-use game::GameScene;
 
 fn main() -> GameResult {
     env_logger::init();
 
-    let (mut ctx, event_loop) = ContextBuilder::new("onyx_engine", "tylian")
-        .window_setup(WindowSetup::default().title("Onyx Engine"))
-        .build()?;
+    let mut cb = ContextBuilder::new("onyx_engine", "tylian")
+        .window_setup(WindowSetup::default().title("Onyx Engine").vsync(false));
 
-    let state = GameState::new(&mut ctx)?;
+    if let Ok(runtime) = std::env::var("RUNTIME_PATH") {
+        let runtime = PathBuf::from(runtime).join("client");
+        let resources = runtime.join("resources");
+
+        println!("Setting runtime to {}", runtime.display());
+        std::env::set_current_dir(runtime).unwrap();
+
+        println!("Adding {resources:?} to path");
+        cb = cb.add_resource_path(resources);
+    }
+
+    let (mut ctx, event_loop) = cb.build()?;
+
+    let state = GameHandler::new(&mut ctx)?;
     event::run(ctx, event_loop, state)
 
     // let window_config = WindowConfig::new()
@@ -48,19 +58,15 @@ fn main() -> GameResult {
     //     .build()
 }
 
-#[derive(Clone, Copy, Eq, PartialEq)]
-enum GameEvent {
-    Quit
+struct GameHandler {
+    scenes: SceneStack<GameState, GameEvent>
 }
 
-struct GameState {
-    scenes: SceneStack<GameEvent>
-}
-
-impl GameState {
+impl GameHandler {
     fn new(ctx: &mut Context) -> GameResult<Self> {
+        let state = GameState::new(ctx)?;
         let title_scene = TitleScene::new(ctx)?;
-        let scenes = SceneStack::new(Box::new(title_scene));
+        let scenes = SceneStack::new(Box::new(title_scene), state);
 
         Ok(Self {
             scenes
@@ -68,17 +74,69 @@ impl GameState {
     }
 }
 
-impl EventHandler for GameState {
-    fn update(&mut self, ctx: &mut Context) -> Result<(), ggez::GameError> {
+impl EventHandler for GameHandler {
+    fn update(&mut self, ctx: &mut Context) -> GameResult {
         self.scenes.update(ctx)
     }
 
-    fn draw(&mut self, ctx: &mut Context) -> Result<(), ggez::GameError> {
+    fn draw(&mut self, ctx: &mut Context) -> GameResult {
         self.scenes.draw(ctx)
     }
 
-    fn quit_event(&mut self, ctx: &mut Context) -> Result<bool, ggez::GameError> {
+    fn quit_event(&mut self, ctx: &mut Context) -> GameResult<bool> {
        self.scenes.event(ctx, GameEvent::Quit).map(|_| false)
+    }
+
+    fn key_down_event(&mut self,
+            _ctx: &mut Context,
+            _input: ggez::input::keyboard::KeyInput,
+            _repeated: bool,
+        ) -> GameResult {
+        // Override default so esc doesn't close game
+        Ok(())
+    }
+
+    fn text_input_event(&mut self, ctx: &mut Context, character: char) -> GameResult {
+        self.scenes.event(ctx, GameEvent::TextInput(character))
+    }
+}
+
+struct GameState {
+    assets: AssetCache,
+}
+
+impl GameState {
+    fn new(ctx: &mut Context) -> GameResult<Self> {
+        let assets = AssetCache::new(ctx)?;
+
+        Ok(Self {
+            assets,
+        })
+    }
+}
+
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum GameEvent {
+    Quit,
+    TextInput(char)
+}
+
+
+pub struct AssetCache {
+    sprites: Image,
+    tileset: Image,
+}
+
+impl AssetCache {
+    fn new(ctx: &mut Context) -> GameResult<Self> {
+        let sprites = graphics::Image::from_path(ctx, "/sprites.png")?;
+        let tileset = graphics::Image::from_path(ctx, "/tilesets/default.png")?;
+
+        Ok(Self {
+            sprites,
+            tileset
+        })
     }
 }
 

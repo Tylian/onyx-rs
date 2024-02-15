@@ -4,10 +4,11 @@ use common::{
     network::{MapLayer, MapSettings, TileAnimation, ZoneData, MapId},
     TILE_SIZE,
 };
-use notan::egui::{*, collapsing_header::CollapsingState};
+use ggegui::egui::{*, collapsing_header::CollapsingState};
+use ggez::glam::IVec2;
 use strum::IntoEnumIterator;
 
-use crate::{assets::AssetCache, data::Tile};
+use crate::{AssetCache, data::Tile};
 
 use super::tile_selector;
 
@@ -244,15 +245,15 @@ impl MapEditor {
             });
 
         ui.add_space(3.0);
-        if let Some((tileset, size)) = assets.tileset.egui.zip(assets.tileset.size) {
-            tile_selector(
-                ui,
-                tileset,
-                size.into(),
-                &mut self.tile_picker,
-                Vec2::new(TILE_SIZE as f32, TILE_SIZE as f32),
-            );
-        }
+        // if let Some((tileset, size)) = assets.tileset.egui.zip(assets.tileset.size) {
+        //     tile_selector(
+        //         ui,
+        //         tileset,
+        //         size.into(),
+        //         &mut self.tile_picker,
+        //         Vec2::new(TILE_SIZE as f32, TILE_SIZE as f32),
+        //     );
+        // }
     }
 
     fn show_zone_tab(&mut self, ui: &mut Ui) {
@@ -405,7 +406,7 @@ impl MapEditor {
     }
 
     pub fn show_tools_tab(&mut self, ui: &mut Ui) {
-        let shift = ui.ctx().input().modifiers.shift;
+        let shift = ui.ctx().input(|i| i.modifiers.shift);
 
         ui.heading("Teleport");
         ui.label("Select a map id and hit ▶ and you will be teleported to it.");
@@ -495,7 +496,7 @@ impl MapEditor {
 
     pub fn tile(&self) -> Tile {
         Tile {
-            texture: glam::ivec2(
+            texture: IVec2::new(
                 self.tile_picker.x as i32 / TILE_SIZE,
                 self.tile_picker.y as i32 / TILE_SIZE,
             ),
