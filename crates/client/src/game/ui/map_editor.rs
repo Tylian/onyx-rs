@@ -245,16 +245,16 @@ impl MapEditor {
             });
 
         ui.add_space(3.0);
-        // if let Some((tileset, size)) = assets.tileset.egui.zip(assets.tileset.size) {
-        //     tile_selector(
-        //         ui,
-        //         tileset,
-        //         size.into(),
-        //         &mut self.tile_picker,
-        //         Vec2::new(TILE_SIZE as f32, TILE_SIZE as f32),
-        //     );
-        // }
-    }
+        let tileset = &assets.tileset_egui;
+        let size = vec2(assets.tileset.width() as f32, assets.tileset.height() as f32);
+        tile_selector(
+            ui,
+            tileset.id(),
+            size.into(),
+            &mut self.tile_picker,
+            Vec2::new(TILE_SIZE as f32, TILE_SIZE as f32),
+        );
+}
 
     fn show_zone_tab(&mut self, ui: &mut Ui) {
         ui.horizontal(|ui| {

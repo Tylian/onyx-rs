@@ -113,7 +113,7 @@ impl From<Direction> for Vector2<i32> {
 pub struct Player {
     pub name: String,
     pub position: Point2<f32>,
-    pub velocity: Option<Vector2<f32>>,
+    pub velocity: Vector2<f32>,
     pub sprite: u32,
     pub direction: Direction,
     pub flags: PlayerFlags,

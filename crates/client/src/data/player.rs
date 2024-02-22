@@ -3,13 +3,13 @@ use common::{
     SPRITE_SIZE, TILE_SIZE,
 };
 
-use ggez::{glam::*, graphics::Canvas};
+use ggez::{glam::*, graphics::{Canvas, Color, DrawParam, PxScale, Text, TextAlign, TextLayout}};
 
-use crate::{utils::ping_pong, AssetCache};
+use crate::{utils::{ping_pong, OutlinedText}, AssetCache};
 
 pub enum Animation {
     Standing,
-    Walking {
+    Moving {
         /// Start time of the animation
         start: f32,
         /// Movement speed in pixels per second.
@@ -28,7 +28,7 @@ impl Animation {
 
         let offset_x = match self {
             Animation::Standing => 1.0,
-            Animation::Walking { start, speed } => {
+            Animation::Moving { start, speed } => {
                 let length = 2.0 * TILE_SIZE as f32 / speed;
                 ping_pong(((time - start) / length) % 1.0, 3) as f32
             }
@@ -49,8 +49,8 @@ pub struct Player {
     pub id: Entity,
     pub name: String,
     pub position: Vec2,
+    pub velocity: Vec2,
     pub interpolation: Option<Interpolation>,
-    pub velocity: Option<Vec2>,
     pub last_update: f32,
     pub animation: Animation,
     pub sprite: u32,
@@ -60,20 +60,21 @@ pub struct Player {
 
 impl Player {
     pub fn from_network(id: Entity, data: NetworkPlayer, time: f32) -> Self {
+        let velocity = Vec2::from(data.velocity);
         Self {
             id,
             name: data.name,
             position: data.position.into(),
             interpolation: None,
-            animation: if let Some(velocity) = data.velocity {
-                Animation::Walking {
+            animation: if velocity == Vec2::ZERO {
+                Animation::Moving {
                     start: time,
-                    speed: Vec2::from(velocity).length(),
+                    speed: velocity.length(),
                 }
             } else {
                 Animation::Standing
             },
-            velocity: data.velocity.map(Into::into),
+            velocity,
             sprite: data.sprite,
             direction: data.direction,
             last_update: time,
@@ -82,47 +83,89 @@ impl Player {
     }
 
     pub fn draw(&self, canvas: &mut Canvas, time: f32, assets: &mut AssetCache) {
-        // self.draw_text(canvas, assets);
+        self.draw_text(canvas, assets);
         self.draw_sprite(canvas, assets, time);
     }
 
-    // pub fn draw_text(&self, draw: &mut Draw, assets: &mut AssetCache) {
-    //     let Some(font) = assets.font.lock() else {
-    //         return;
-    //     };
+    pub fn update_animation(&mut self, time: f32) {
+        if self.velocity == Vec2::ZERO {
+            self.animation = Animation::Standing;
+        } else {
+            let speed = self.velocity.length();
+            self.animation = match self.animation {
+                Animation::Standing => Animation::Moving {
+                    start: time,
+                    speed
+                },
+                Animation::Moving { start, .. } => Animation::Moving {
+                    start, speed
+                },
+            }
+        }
+    }
 
-    //     // const FONT_SIZE: u16 = 16;
-    //     // let measurements = measure_text(&self.name, Some(assets.font), FONT_SIZE, 1.0);
+    pub fn draw_text(&self, canvas: &mut Canvas, assets: &mut AssetCache) {
+        // let Some(font) = assets.font.lock() else {
+        //     return;
+        // };
 
-    //     // // ? The text is drawn with the baseline being the supplied y
-    //     let text_offset = vec2(SPRITE_SIZE as f32 / 2.0, -3.0);
-    //     let position = self.position + text_offset;
+        let text_offset = vec2(SPRITE_SIZE as f32 / 2.0, -3.0);
+        let position = self.position.round() + text_offset;
 
-    //     draw_text_outline(
-    //         draw,
-    //         &font,
-    //         &self.name,
-    //         position,
-    //         |text| {
-    //             text.color(Color::WHITE)
-    //                 .v_align_bottom()
-    //                 .h_align_center()
-    //                 .size(16.0);
-    //         }
-    //     )
+        // todo: store in player?
+        let mut text = Text::new(&self.name);
+        text.set_layout(TextLayout {
+            h_align: TextAlign::Middle,
+            v_align: TextAlign::End,
+        });
+        text.set_scale(PxScale::from(16.0));
 
-    //     // let pos = position + text_offset;
-    //     // draw_text_outline(
-    //     //     &self.name,
-    //     //     pos,
-    //     //     TextParams {
-    //     //         font_size: FONT_SIZE,
-    //     //         font: assets.font,
-    //     //         color: WHITE,
-    //     //         ..Default::default()
-    //     //     },
-    //     // );
-    // }
+        canvas.draw(
+            &OutlinedText::new(&text),
+            DrawParam::default()
+                .dest(position)
+                .color(Color::WHITE)
+        );
+
+        // let mut text = ;
+        // let params = DrawParam::default()
+        //     .color(Color::WHITE)
+        //     .dest(position);
+        // canvas.draw(&text, params);
+        
+
+        // // const FONT_SIZE: u16 = 16;
+        // // let measurements = measure_text(&self.name, Some(assets.font), FONT_SIZE, 1.0);
+
+        // // // ? The text is drawn with the baseline being the supplied y
+        // let text_offset = vec2(SPRITE_SIZE as f32 / 2.0, -3.0);
+        // let position = self.position + text_offset;
+
+        // draw_text_outline(
+        //     draw,
+        //     &font,
+        //     &self.name,
+        //     position,
+        //     |text| {
+        //         text.color(Color::WHITE)
+        //             .v_align_bottom()
+        //             .h_align_center()
+        //             .size(16.0);
+        //     }
+        // )
+
+        // // let pos = position + text_offset;
+        // // draw_text_outline(
+        // //     &self.name,
+        // //     pos,
+        // //     TextParams {
+        // //         font_size: FONT_SIZE,
+        // //         font: assets.font,
+        // //         color: WHITE,
+        // //         ..Default::default()
+        // //     },
+        // // );
+    }
 
     fn draw_sprite(&self, canvas: &mut Canvas, assets: &mut AssetCache, time: f32) {
         use ggez::graphics::*;
@@ -150,7 +193,7 @@ impl Player {
         );
 
         canvas.draw(&assets.sprites, DrawParam::default()
-            .dest(self.position)
+            .dest(self.position.round())
             .src(uv)
         );
     }

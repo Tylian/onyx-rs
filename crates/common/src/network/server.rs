@@ -15,8 +15,7 @@ pub enum Packet {
     PlayerMove {
         entity: Entity,
         position: Point2<f32>,
-        direction: Direction,
-        velocity: Option<Vector2<f32>>,
+        velocity: Vector2<f32>,
     },
     ChatLog(ChatChannel, String),
     ChangeMap(MapId, u64),

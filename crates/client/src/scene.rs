@@ -19,7 +19,7 @@ impl<S, E> SceneTransition<S, E> {
 }
 
 pub struct SceneStack<S, E> {
-    state: S,
+    pub state: S,
     stack: Vec<Box<dyn Scene<S, E>>>
 }
 

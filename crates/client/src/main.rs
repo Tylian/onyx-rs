@@ -8,7 +8,8 @@ mod utils;
 
 use std::path::PathBuf;
 
-use ggez::conf::WindowSetup;
+use ggegui::{egui, Gui};
+use ggez::conf::{WindowMode, WindowSetup};
 use ggez::event::EventHandler;
 use ggez::{event, ContextBuilder};
 use ggez::graphics::{self, Image};
@@ -22,7 +23,8 @@ fn main() -> GameResult {
     env_logger::init();
 
     let mut cb = ContextBuilder::new("onyx_engine", "tylian")
-        .window_setup(WindowSetup::default().title("Onyx Engine").vsync(false));
+        .window_setup(WindowSetup::default().title("Onyx Engine").vsync(false))
+        .window_mode(WindowMode::default().dimensions(1600.0, 900.0));
 
     if let Ok(runtime) = std::env::var("RUNTIME_PATH") {
         let runtime = PathBuf::from(runtime).join("client");
@@ -97,20 +99,24 @@ impl EventHandler for GameHandler {
     }
 
     fn text_input_event(&mut self, ctx: &mut Context, character: char) -> GameResult {
+        self.scenes.state.gui.input.text_input_event(character);
         self.scenes.event(ctx, GameEvent::TextInput(character))
     }
 }
 
 struct GameState {
     assets: AssetCache,
+    gui: Gui,
 }
 
 impl GameState {
     fn new(ctx: &mut Context) -> GameResult<Self> {
-        let assets = AssetCache::new(ctx)?;
+        let mut gui = Gui::new(ctx);
+        let assets = AssetCache::new(ctx, &mut gui)?;
 
         Ok(Self {
             assets,
+            gui
         })
     }
 }
@@ -126,16 +132,31 @@ enum GameEvent {
 pub struct AssetCache {
     sprites: Image,
     tileset: Image,
+    tileset_egui: egui::TextureHandle
 }
 
 impl AssetCache {
-    fn new(ctx: &mut Context) -> GameResult<Self> {
+    fn new(ctx: &mut Context, gui: &mut Gui) -> GameResult<Self> {
         let sprites = graphics::Image::from_path(ctx, "/sprites.png")?;
         let tileset = graphics::Image::from_path(ctx, "/tilesets/default.png")?;
 
+        let pixels = tileset.to_pixels(ctx)?;
+
+        let color_image = egui::ColorImage::from_rgba_unmultiplied(
+            [tileset.width() as usize, tileset.height() as usize], 
+            &pixels
+        );
+
+        let tileset_egui = gui.ctx().load_texture(
+            "tileset",
+            color_image,
+            Default::default()
+        );
+
         Ok(Self {
             sprites,
-            tileset
+            tileset,
+            tileset_egui
         })
     }
 }

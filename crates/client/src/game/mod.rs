@@ -28,13 +28,11 @@ pub struct GameScene {
     // assets: AssetCache,
     // camera: Camera,
     camera: Rect,
-    last_movement: Option<(Direction, f32)>,
     last_position_send: f32,
     local_player: Entity,
     map: Map,
     network: Network,
     players: HashMap<Entity, Player>,
-    gui: Gui,
     ui: UiState,
 }
 
@@ -51,9 +49,7 @@ impl GameScene {
             map: Map::new(MapId::default(), 20, 15),
             camera: Rect::new(0.0, 0.0, screen_x, screen_y),
             // camera: Camera::default(),
-            gui: Gui::new(ctx),
             ui: UiState::default(),
-            last_movement: None,
             last_position_send: 0.0,
         }
     }
@@ -78,8 +74,7 @@ impl GameScene {
             if let Some(player) = self.players.get(&self.local_player) {
                 self.network.send(&Packet::Move {
                     position: player.position.into(),
-                    direction: player.direction,
-                    velocity: player.velocity.map(|v| v.into()),
+                    velocity: player.velocity.into(),
                 });
             }
         }
@@ -141,19 +136,21 @@ impl GameScene {
             PlayerMove {
                 entity,
                 position,
-                direction,
                 velocity,
             } => {
                 if let Some(player) = self.players.get_mut(&entity) {
-                    player.direction = direction;
-                    if let Some(velocity) = velocity {
-                        let velocity = Vec2::from(velocity);
-                        // player.animation = Animation::Walking {
-                        //     start: time.as_secs_f32(),
-                        //     speed: velocity.length(),
-                        // };
-                        player.velocity = Some(velocity);
+                    if let Some(direction) = Direction::from_velocity(velocity) {
+                        player.direction = direction;
+                    }
+                    
+                    let velocity = Vec2::from(velocity);
+                    if velocity != Vec2::ZERO {
+                        player.velocity = velocity;
                         
+                        // ? currently the player position is extrapolated if we don't recieve updates quick enough
+                        // ? the below interpolation is based on the client's current local position as the starting point
+                        // ? which during lag could look pretty wild. evaluate if this is the best approach
+                        // ? the effect is entirely visual, so pick what would look best.
                         let interpolation = Interpolation {
                             initial: player.position,
                             target: position.into(),
@@ -163,7 +160,7 @@ impl GameScene {
                         player.interpolation = Some(interpolation);
                     } else {
                         player.animation = Animation::Standing;
-                        player.velocity = None;
+                        player.velocity = Vec2::ZERO;
                     }
                 }
             }
@@ -209,9 +206,8 @@ impl GameScene {
 
         let entity = self.local_player;
         if let Some(player) = self.players.get_mut(&entity) {
-        // for (entity, player) in &mut self.players {
-            if let Some(&mut velocity) = player.velocity.as_mut() {
-                let offset = velocity * dt;
+            if player.velocity != Vec2::ZERO {
+                let offset = player.velocity * dt;
                 let new_position = player.position + offset;
 
                 // only block on the bottom half of the sprite, feels better
@@ -248,11 +244,10 @@ impl GameScene {
             }
         }
 
-        let now = ctx.time.time_since_start().as_secs_f32();
         for (entity, player) in &mut self.players {
             if *entity == self.local_player { continue; }
             if let Some(interpolation) = &mut player.interpolation {
-                let elapsed = now - interpolation.start_time;
+                let elapsed = time - interpolation.start_time;
                 let progress = elapsed / interpolation.duration;
 
                 if progress < 1.0 {
@@ -264,12 +259,12 @@ impl GameScene {
                     if let Some(direction) = new_direction {
                         player.direction = direction;
                     }
-                    
                 } else {
-                    
                     player.position = interpolation.target;
                     player.interpolation = None;
                 }
+
+                player.update_animation(time);
             }
         }
     }
@@ -283,10 +278,10 @@ impl GameScene {
         }
     }
 
-    fn update_gui(&mut self, ctx: &mut Context, assets: &mut AssetCache) {
+    fn update_gui(&mut self, ctx: &mut Context, state: &mut GameState) {
         use ggegui::egui;
 
-        let gui_ctx = self.gui.ctx();
+        let gui_ctx = state.gui.ctx();
         let screen_size = Vec2::from(ctx.gfx.drawable_size());
         let mouse_position = ctx.mouse.position();
         
@@ -313,7 +308,7 @@ impl GameScene {
 
         self.ui
             .map_editor
-            .show(&gui_ctx, assets, &mut self.ui.map_editor_shown);
+            .show(&gui_ctx, &mut state.assets, &mut self.ui.map_editor_shown);
 
         match self.ui.map_editor.wants() {
             None => (),
@@ -377,42 +372,69 @@ impl GameScene {
         let keyboard = &ctx.keyboard;
 
         if let Some(player) = self.players.get_mut(&self.local_player) {
-            let movement = if keyboard.is_key_pressed(KeyCode::Up) || keyboard.is_key_pressed(KeyCode::W) {
-                Some(Direction::North)
-            } else if keyboard.is_key_pressed(KeyCode::Down) || keyboard.is_key_pressed(KeyCode::S) {
-                Some(Direction::South)
-            } else if keyboard.is_key_pressed(KeyCode::Left) || keyboard.is_key_pressed(KeyCode::A) {
-                Some(Direction::West)
-            } else if keyboard.is_key_pressed(KeyCode::Right) || keyboard.is_key_pressed(KeyCode::D) {
-                Some(Direction::East)
-            } else {
-                None
-            };
-
+            let mut new_velocity = player.velocity;
             let speed = if keyboard.active_mods().contains(KeyMods::SHIFT) {
                 WALK_SPEED
             } else {
                 RUN_SPEED
             };
-            let cache = movement.map(|movement| (movement, speed)); // lol
 
-            if cache != self.last_movement {
-                self.last_movement = cache;
-                if let Some(direction) = movement {
-                    let velocity = Vec2::from(direction.offset_f32()) * speed;
-
-                    player.animation = Animation::Walking {
-                        start: time,
-                        speed,
-                    };
-                    player.velocity = Some(velocity);
-                    player.last_update = time;
-                    player.direction = direction;
-                } else {
-                    player.animation = Animation::Standing;
-                    player.velocity = None;
-                };
+            if keyboard.is_key_pressed(KeyCode::Up) || keyboard.is_key_pressed(KeyCode::W) {
+                new_velocity.y = -1.0;
+            } else if keyboard.is_key_pressed(KeyCode::Down) || keyboard.is_key_pressed(KeyCode::S) {
+                new_velocity.y = 1.0;
+            } else {
+                new_velocity.y = 0.0;
             }
+
+            if keyboard.is_key_pressed(KeyCode::Left) || keyboard.is_key_pressed(KeyCode::A) {
+                new_velocity.x = -1.0;
+            } else if keyboard.is_key_pressed(KeyCode::Right) || keyboard.is_key_pressed(KeyCode::D) {
+                new_velocity.x = 1.0;
+            } else {
+                new_velocity.x = 0.0;
+            }
+
+            player.velocity = new_velocity.normalize_or_zero() * speed;
+            player.direction = Direction::from_velocity(player.velocity.into()).unwrap_or(player.direction);
+            player.update_animation(time);
+
+            // let movement = if keyboard.is_key_pressed(KeyCode::Up) || keyboard.is_key_pressed(KeyCode::W) {
+            //     Some(Direction::North)
+            // } else if keyboard.is_key_pressed(KeyCode::Down) || keyboard.is_key_pressed(KeyCode::S) {
+            //     Some(Direction::South)
+            // } else if keyboard.is_key_pressed(KeyCode::Left) || keyboard.is_key_pressed(KeyCode::A) {
+            //     Some(Direction::West)
+            // } else if keyboard.is_key_pressed(KeyCode::Right) || keyboard.is_key_pressed(KeyCode::D) {
+            //     Some(Direction::East)
+            // } else {
+            //     None
+            // };
+
+            // let speed = if keyboard.active_mods().contains(KeyMods::SHIFT) {
+            //     WALK_SPEED
+            // } else {
+            //     RUN_SPEED
+            // };
+            // let cache = movement.map(|movement| (movement, speed)); // lol
+
+            // if cache != self.last_movement {
+            //     self.last_movement = cache;
+            //     if let Some(direction) = movement {
+            //         let velocity = Vec2::from(direction.offset_f32()) * speed;
+
+            //         player.animation = Animation::Walking {
+            //             start: time,
+            //             speed,
+            //         };
+            //         player.velocity = Some(velocity);
+            //         player.last_update = time;
+            //         player.direction = direction;
+            //     } else {
+            //         player.animation = Animation::Standing;
+            //         player.velocity = None;
+            //     };
+            // }
         }
 
         // Admin
@@ -522,8 +544,8 @@ impl GameScene {
 
             // self.camera.target = target;
             self.camera = Rect::new(
-                target.x - screen_width / 2.0,
-                target.y - screen_height / 2.0,
+                (target.x - screen_width / 2.0).round(),
+                (target.y - screen_height / 2.0).round(),
                 screen_width,
                 screen_height
             );
@@ -554,8 +576,8 @@ impl Scene<GameState, GameEvent> for GameScene {
         self.update_input(ctx);
         self.update_camera(ctx);
 
-        self.update_gui(ctx, &mut state.assets);
-        self.gui.update(ctx);
+        self.update_gui(ctx, state);
+        state.gui.update(ctx);
 
         Ok(SceneTransition::None)
     }
@@ -587,7 +609,7 @@ impl Scene<GameState, GameEvent> for GameScene {
 
         // UI drawing starts here
         canvas.set_screen_coordinates(Rect::new(0.0, 0.0, screen_width, screen_height));
-        canvas.draw(&self.gui, DrawParam::default());
+        canvas.draw(&state.gui, DrawParam::default());
         
         // FPS
         let fps = ctx.time.fps();
@@ -601,9 +623,8 @@ impl Scene<GameState, GameEvent> for GameScene {
     }
 
     fn event(&mut self, _ctx: &mut ggez::Context, _state: &mut GameState, event: GameEvent) -> GameResult {
-        match event {
-            GameEvent::Quit => self.network.stop(),
-            GameEvent::TextInput(character) => self.gui.input.text_input_event(character),
+        if event == GameEvent::Quit {
+            self.network.stop()
         }
         Ok(())
     }

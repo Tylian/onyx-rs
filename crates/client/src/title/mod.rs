@@ -11,8 +11,6 @@ use crate::{
 };
 
 pub struct TitleScene {
-    gui: Gui,
-
     loading: bool,
     tab: UiTab,
 
@@ -32,8 +30,6 @@ impl TitleScene {
         let settings = Settings::load().unwrap_or_default();
 
         Ok(Self {
-            gui: Gui::new(ctx),
-
             loading: true,
             tab: UiTab::Login,
 
@@ -187,10 +183,10 @@ impl TitleScene {
 }
 
 impl Scene<GameState, GameEvent> for TitleScene {
-    fn draw(&mut self, ctx: &mut Context, _state: &mut GameState) -> GameResult<()> {
+    fn draw(&mut self, ctx: &mut Context, state: &mut GameState) -> GameResult<()> {
         let mut canvas = Canvas::from_frame(ctx, Color::BLACK);
         canvas.draw(
-			&self.gui, 
+			&state.gui, 
 			DrawParam::default().dest(glam::Vec2::ZERO),
 		);
         canvas.finish(ctx)
@@ -201,10 +197,10 @@ impl Scene<GameState, GameEvent> for TitleScene {
         // ctx.gfx.render(&output);
     }
 
-    fn update(&mut self, ctx: &mut Context, _state: &mut GameState) -> GameResult<SceneTransition<GameState, GameEvent>> {
-        let mut gui_ctx = self.gui.ctx();
+    fn update(&mut self, ctx: &mut Context, state: &mut GameState) -> GameResult<SceneTransition<GameState, GameEvent>> {
+        let mut gui_ctx = state.gui.ctx();
         self.ui(&mut gui_ctx);
-        self.gui.update(ctx);
+        state.gui.update(ctx);
 
         let Some(network) = self.network.as_mut() else {
             return Ok(SceneTransition::None);
@@ -266,11 +262,10 @@ impl Scene<GameState, GameEvent> for TitleScene {
     }
 
     fn event(&mut self, _ctx: &mut ggez::Context, _state: &mut GameState, event: GameEvent) -> GameResult {
-        match event {
-            GameEvent::Quit => if let Some(network) = self.network.as_mut() {
+        if event == GameEvent::Quit {
+            if let Some(network) = self.network.as_mut() {
                 network.stop();
-            },
-            GameEvent::TextInput(character) => self.gui.input.text_input_event(character),
+            }
         }
         Ok(())
     }

@@ -15,7 +15,7 @@ pub struct Player {
     pub position: Point2D<f32>,
     pub direction: Direction,
     #[serde(skip)]
-    pub velocity: Option<Vector2D<f32>>,
+    pub velocity: Vector2D<f32>,
 
     #[serde(skip)]
     pub last_movement_update: f32, // 
@@ -35,7 +35,7 @@ impl Default for Player {
             direction: Direction::South,
             map: MapId::default(),
             flags: PlayerFlags::default(),
-            velocity: None,
+            velocity: Vector2D::zero(),
             last_movement_update: 0.0,
         }
     }
@@ -46,7 +46,7 @@ impl From<Player> for NetworkPlayer {
         Self {
             name: other.name,
             sprite: other.sprite,
-            velocity: other.velocity.map(Into::into),
+            velocity: other.velocity.into(),
             position: other.position.into(),
             direction: other.direction,
             flags: other.flags,
@@ -87,7 +87,7 @@ impl Player {
             position,
             direction: Direction::South,
             map,
-            velocity: None,
+            velocity: Vector2D::zero(),
             flags: PlayerFlags::default(),
             last_movement_update: 0.0
         }

@@ -302,7 +302,6 @@ impl GameServer {
             }
             ClientPacket::Move {
                 position,
-                direction,
                 velocity,
             } => {
                 let map_id = self.players[&entity].map;
@@ -319,8 +318,7 @@ impl GameServer {
                     let player = self.players.get_mut(&entity).unwrap();
 
                     player.position = position.into();
-                    player.velocity = velocity.map(Into::into);
-                    player.direction = direction;
+                    player.velocity = velocity.into();
 
                     // let packet = Packet::PlayerMove {
                     //     entity,
@@ -635,8 +633,7 @@ impl GameServer {
                  let packet = Packet::PlayerMove {
                      entity,
                      position: player.position.into(),
-                     direction: player.direction,
-                     velocity: player.velocity.map(|velocity| velocity.into()),
+                     velocity: player.velocity.into(),
                  };
      
                  position_updates.push((player.map, entity, packet));
@@ -701,14 +698,13 @@ impl GameServer {
             }
             if let Some(direction) = params.direction {
                 player.direction = direction;
-                player.velocity = None;
+                player.velocity = Vector2D::zero();
             }
 
             let packet = Packet::PlayerMove {
                 entity,
                 position: player.position.into(),
-                direction: player.direction,
-                velocity: player.velocity.map(Into::into),
+                velocity: player.velocity.into(),
             };
 
             player.save().unwrap();

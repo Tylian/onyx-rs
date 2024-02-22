@@ -1,5 +1,9 @@
 // use notan::{draw::*, math::*, prelude::Color};
 
+use std::ops::Deref;
+
+use ggez::{context::Has, glam::Vec2, graphics::{Canvas, Color, DrawParam, Drawable, GraphicsContext, Rect, Text, Transform}};
+
 #[macro_export]
 macro_rules! ensure {
     ($cond:expr, $err:expr) => {
@@ -39,33 +43,90 @@ pub fn ping_pong(t: f32, frames: u16) -> u16 {
 //     text_section.position(position.x, position.y);
 // }
 
-// pub fn draw_text_outline<'a, F>(draw: &mut Draw, font: &'a Font, text: &'a str, position: Vec2, builder: F)
-//     where F: Fn(&mut DrawBuilder<TextSection<'a>>)
-// {
-//     let outlines = &[
-//         glam::vec2(1.0, 0.0),
-//         glam::vec2(-1.0, 0.0),
-//         glam::vec2(0.0, 1.0),
-//         glam::vec2(0.0, -1.0),
-//         glam::vec2(-1.0, -0.0),
-//         glam::vec2(-1.0, 1.0),
-//         glam::vec2(1.0, -1.0),
-//         glam::vec2(1.0, 1.0),
-//     ];
+pub struct OutlinedText<'a> {
+    inner: &'a Text,
+    outline_color: Color
+}
 
-//     for outline in outlines {
-//         let mut text = draw.text(font, text);
-//         builder(&mut text);
+impl<'a> OutlinedText<'a> {
+    pub fn new(text: &'a Text) -> Self {
+        Self {
+            inner: text,
+            outline_color: Color::new(0.0, 0.0, 0.0, 0.5)
+        }
+    }
+    pub fn outline_color(self, color: impl Into<Color>) -> Self {
+        Self {
+            outline_color: color.into(),
+            ..self
+        }
+    }
+}
 
-//         let position = position + *outline;
-//         text.position(position.x, position.y)
-//             .color(Color::from_rgba(0.0, 0.0, 0.0, 0.5));
-//     }
+#[allow(clippy::clone_on_copy)] // explicit clone for readability + intent
+impl<'a> Drawable for OutlinedText<'a> {
+    fn draw(&self, canvas: &mut Canvas, param: impl Into<DrawParam>) {
+        const OFFSETS: &[Vec2] = &[
+            Vec2::new(1.0, 0.0),
+            Vec2::new(-1.0, 0.0),
+            Vec2::new(0.0, 1.0),
+            Vec2::new(0.0, -1.0),
+            Vec2::new(-1.0, -0.0),
+            Vec2::new(-1.0, 1.0),
+            Vec2::new(1.0, -1.0),
+            Vec2::new(1.0, 1.0),
+        ];
 
-//     let mut text = draw.text(font, text);
-//     builder(&mut text);
-//     text.position(position.x, position.y);
-// }
+        let param: DrawParam = param.into();
+        let Transform::Values { dest, .. } = param.transform else {
+            return canvas.draw(self.inner, param);
+        };
+        let dest = Vec2::from(dest);
+
+        for offset in OFFSETS {
+            let param = param.clone()
+                .dest(dest + *offset)
+                .color(self.outline_color);
+            canvas.draw(self.inner, param);
+        }
+    
+        canvas.draw(self.inner, param);
+    }
+
+    fn dimensions(&self, gfx: &impl Has<GraphicsContext>) -> Option<Rect> {
+        let rect = self.inner.dimensions(gfx);
+        rect.map(|inner| Rect::new(
+            inner.x - 1.0,
+            inner.y - 1.0,
+            inner.w + 2.0,
+            inner.h + 2.0
+        ))
+    }
+}
+
+pub fn draw_text_outline<'a, FP, FT>(canvas: &mut Canvas, text_builder: FT, param_builder: FP)
+    where FT: FnOnce() -> Text,
+          FP: Fn(Vec2, bool) -> DrawParam
+{
+    let outlines = &[
+        Vec2::new(1.0, 0.0),
+        Vec2::new(-1.0, 0.0),
+        Vec2::new(0.0, 1.0),
+        Vec2::new(0.0, -1.0),
+        Vec2::new(-1.0, -0.0),
+        Vec2::new(-1.0, 1.0),
+        Vec2::new(1.0, -1.0),
+        Vec2::new(1.0, 1.0),
+    ];
+
+    let text = text_builder();
+
+    for outline in outlines {
+        canvas.draw(&text, param_builder(*outline, true));
+    }
+
+    canvas.draw(&text, param_builder(Vec2::ZERO, false));
+}
 
 // pub fn rect(x: f32, y: f32, width: f32, height: f32) -> Rect {
 //     Rect {

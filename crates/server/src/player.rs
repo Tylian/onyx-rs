@@ -9,7 +9,7 @@ pub struct Player {
     pub sprite: u32,
     pub position: Point2D<f32>,
     pub direction: Direction,
-    pub velocity: Option<Vector2D<f32>>,
+    pub velocity: Vector2D<f32>,
     pub map: String,
     pub flags: PlayerFlags,
 }
@@ -19,7 +19,7 @@ impl From<Player> for NetworkPlayer {
         Self {
             name: other.name,
             sprite: other.sprite,
-            velocity: other.velocity.map(Into::into),
+            velocity: other.velocity.into(),
             position: other.position.into(),
             direction: other.direction,
             flags: other.flags,
