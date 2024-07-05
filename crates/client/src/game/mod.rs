@@ -4,11 +4,11 @@ use common::{
     network::{server::Packet as ServerPacket, Entity, ZoneData, Direction, client::Packet, MapLayer, ChatChannel, MapId},
     SPRITE_SIZE, WALK_SPEED, RUN_SPEED, TILE_SIZE,
 };
-use ggegui::Gui;
+use ggegui::{egui::{Id, LayerId, Order}, Gui};
 use ggez::{
     event::MouseButton, glam::{IVec2, Vec2}, graphics::Rect, input::keyboard::{KeyCode, KeyMods}, Context, GameResult
 };
-use message_io::node::StoredNetEvent;
+use renet::DefaultChannel;
 
 use crate::{
     data::{Animation, Interpolation, Map, Player, Zone}, network::Network, scene::{Scene, SceneTransition}, AssetCache, GameEvent, GameState
@@ -55,18 +55,20 @@ impl GameScene {
     }
 
     fn update_network(&mut self, ctx: &mut Context) {
-        while let Some(event) = self.network.try_receive() {
-            match event.network() {
-                StoredNetEvent::Connected(_, _) => (),
-                StoredNetEvent::Accepted(_, _) => unreachable!(),
-                StoredNetEvent::Message(_, bytes) => {
-                    match rmp_serde::from_slice(&bytes) {
-                        Ok(message) => self.handle_message(message, ctx),
-                        Err(e) => log::error!("Error parsing packet {:?}", e),
-                    };
-                }
-                StoredNetEvent::Disconnected(_) => { /* f in chat */ },
-            }
+        let delta = ctx.time.delta();
+
+        self.network.client.update(delta);
+        self.network.transport.update(delta, &mut self.network.client).unwrap();
+
+        if let Some(e) = self.network.client.disconnect_reason() {
+            panic!("Disconnected: {e}");
+        }
+
+        while let Some(bytes) = self.network.client.receive_message(DefaultChannel::ReliableUnordered) {
+            match rmp_serde::from_slice(&bytes) {
+                Ok(message) => self.handle_message(message, ctx),
+                Err(e) => log::error!("Error parsing packet {:?}", e),
+            };
         }
 
         const UPDATE_DELAY: f32 = 1.0 / 20.0; // update time in hz
@@ -77,6 +79,10 @@ impl GameScene {
                     velocity: player.velocity.into(),
                 });
             }
+        }
+
+        if let Err(e) = self.network.transport.send_packets(&mut self.network.client) {
+            panic!("Error sending packets: {e}");
         }
     }
 
@@ -206,7 +212,16 @@ impl GameScene {
 
         let entity = self.local_player;
         if let Some(player) = self.players.get_mut(&entity) {
-            if player.velocity != Vec2::ZERO {
+            const FRICTION: f32 = 0.0; // % loss per second
+
+            let force = player.velocity.normalize_or_zero() * 0.9 * -RUN_SPEED; // friction is a force, not an impulse
+            let acceleration = player.acceleration + force;
+
+            let velocity = (player.velocity + acceleration * dt).clamp_length_max(RUN_SPEED);
+            
+            if velocity.length_squared() > 0.0 {
+                player.velocity = velocity;
+
                 let offset = player.velocity * dt;
                 let new_position = player.position + offset;
 
@@ -340,7 +355,8 @@ impl GameScene {
             for zone in &self.map.zones {
                 if zone.position.contains(mouse_position) {
                     if let ZoneData::Warp(map_id, position, direction) = &zone.data {
-                        egui::show_tooltip_at_pointer(&gui_ctx, egui::Id::new("zone_tooltip"), |ui| {
+                        let layer_id = LayerId::new(Order::Foreground, Id::new("tooltip"));
+                        egui::show_tooltip_at_pointer(&gui_ctx, layer_id, egui::Id::new("zone_tooltip"), |ui| {
                             ui.label(format!("Warp to map #{}", map_id.0));
                             ui.label(format!("x: {} y: {}", position.x, position.y));
                             if let Some(direction) = direction {
@@ -372,7 +388,7 @@ impl GameScene {
         let keyboard = &ctx.keyboard;
 
         if let Some(player) = self.players.get_mut(&self.local_player) {
-            let mut new_velocity = player.velocity;
+            let mut new_acceleration = player.acceleration;
             let speed = if keyboard.active_mods().contains(KeyMods::SHIFT) {
                 WALK_SPEED
             } else {
@@ -380,23 +396,23 @@ impl GameScene {
             };
 
             if keyboard.is_key_pressed(KeyCode::Up) || keyboard.is_key_pressed(KeyCode::W) {
-                new_velocity.y = -1.0;
+                new_acceleration.y = -1.0;
             } else if keyboard.is_key_pressed(KeyCode::Down) || keyboard.is_key_pressed(KeyCode::S) {
-                new_velocity.y = 1.0;
+                new_acceleration.y = 1.0;
             } else {
-                new_velocity.y = 0.0;
+                new_acceleration.y = 0.0;
             }
 
             if keyboard.is_key_pressed(KeyCode::Left) || keyboard.is_key_pressed(KeyCode::A) {
-                new_velocity.x = -1.0;
+                new_acceleration.x = -1.0;
             } else if keyboard.is_key_pressed(KeyCode::Right) || keyboard.is_key_pressed(KeyCode::D) {
-                new_velocity.x = 1.0;
+                new_acceleration.x = 1.0;
             } else {
-                new_velocity.x = 0.0;
+                new_acceleration.x = 0.0;
             }
 
-            player.velocity = new_velocity.normalize_or_zero() * speed;
-            player.direction = Direction::from_velocity(player.velocity.into()).unwrap_or(player.direction);
+            player.acceleration = new_acceleration.normalize_or_zero() * speed;
+            player.direction = Direction::from_velocity(player.acceleration.into()).unwrap_or(player.direction);
             player.update_animation(time);
 
             // let movement = if keyboard.is_key_pressed(KeyCode::Up) || keyboard.is_key_pressed(KeyCode::W) {
@@ -619,12 +635,20 @@ impl Scene<GameState, GameEvent> for GameScene {
             DrawParam::from([0.0, 0.0]).color(Color::WHITE),
         );
 
+        if let Some(player) = self.players.get_mut(&self.local_player) {
+            let text = Text::new(format!("Velocity: {:.02}", player.velocity));
+            canvas.draw(&text, DrawParam::from([0.0, 14.0]).color(Color::WHITE));
+
+            let text = Text::new(format!("Acceleration: {:.02}", player.acceleration));
+            canvas.draw(&text, DrawParam::from([0.0, 28.0]).color(Color::WHITE));
+        }
+
         canvas.finish(ctx)
     }
 
     fn event(&mut self, _ctx: &mut ggez::Context, _state: &mut GameState, event: GameEvent) -> GameResult {
         if event == GameEvent::Quit {
-            self.network.stop()
+            self.network.transport.disconnect()
         }
         Ok(())
     }

@@ -6,6 +6,7 @@ mod map_editor;
 use ggegui::egui::*;
 
 use common::SPRITE_SIZE;
+use load::SizedTexture;
 
 use crate::utils::ping_pong;
 
@@ -16,7 +17,7 @@ pub use self::map_editor::*;
 pub fn dialog<R>(ctx: &Context, add_contents: impl FnOnce(&mut Ui) -> R) -> InnerResponse<R> {
     // vaguely based on the following code, thanks!
     // https://github.com/4JX/mCubed/blob/8a3b0a1568cbca3c372416db9a82f69b088ae0c6/main/src/ui/widgets/screen_prompt.rs
-    Area::new("prompt_bg").fixed_pos(Pos2::ZERO).show(ctx, |ui| {
+    Area::new(Id::new("prompt_bg")).fixed_pos(Pos2::ZERO).show(ctx, |ui| {
         let screen_rect = ctx.input(|i| i.screen_rect);
 
         ui.allocate_response(screen_rect.size(), Sense::click());
@@ -25,9 +26,9 @@ pub fn dialog<R>(ctx: &Context, add_contents: impl FnOnce(&mut Ui) -> R) -> Inne
         let shade_color = ui.visuals().noninteractive().bg_fill.linear_multiply(0.5);
 
         ui.painter()
-            .add(Shape::rect_filled(screen_rect, Rounding::none(), shade_color));
+            .add(Shape::rect_filled(screen_rect, Rounding::ZERO, shade_color));
 
-        Area::new("prompt_centered")
+        Area::new(Id::new("prompt_centered"))
             .anchor(Align2::CENTER_CENTER, Vec2::splat(0.0))
             .order(Order::Foreground)
             .show(ctx, |ui| {
@@ -47,18 +48,18 @@ pub fn dialog<R>(ctx: &Context, add_contents: impl FnOnce(&mut Ui) -> R) -> Inne
 }
 
 // TODO multiple tile selections
-pub fn tile_selector(ui: &mut Ui, texture: TextureId, texture_size: Vec2, selected: &mut Pos2, snap: Vec2) {
+pub fn tile_selector(ui: &mut Ui, texture: SizedTexture, selected: &mut Pos2, snap: Vec2) {
     ScrollArea::both().show_viewport(ui, |ui, viewport| {
         let clip_rect = ui.clip_rect();
 
         let margin = ui.visuals().clip_rect_margin;
         let offset = (clip_rect.left_top() - viewport.left_top()) + vec2(margin, margin);
 
-        let response = ui.add(Image::new(texture, texture_size).sense(Sense::click()));
+        let response = ui.add(Image::new(texture).sense(Sense::click()));
         if response.clicked() {
             let pointer = response.interact_pointer_pos().unwrap();
             let position = pointer - offset;
-            if position.x >= 0.0 && position.y >= 0.0 && position.x < texture_size.x && position.y < texture_size.y {
+            if position.x >= 0.0 && position.y >= 0.0 && position.x < texture.size.x && position.y < texture.size.y {
                 *selected = (snap * (position.to_vec2() / snap).floor()).to_pos2();
             }
         }
@@ -89,8 +90,9 @@ pub fn sprite_preview(ui: &mut Ui, texture: &TextureHandle, time: f32, sprite: u
         (sprite_y + offset_y) * SPRITE_SIZE as f32,
     ) / texture.size_vec2();
     let size = vec2(SPRITE_SIZE as f32, SPRITE_SIZE as f32) / texture.size_vec2();
-    let sprite =
-        Image::new(texture, (SPRITE_SIZE as f32, SPRITE_SIZE as f32)).uv(Rect::from_min_size(p.to_pos2(), size));
+    let sprite = Image::from_texture(texture)
+        .fit_to_exact_size(vec2(SPRITE_SIZE as f32, SPRITE_SIZE as f32))
+        .uv(Rect::from_min_size(p.to_pos2(), size));
 
     ui.add(sprite)
 }
@@ -107,7 +109,7 @@ fn auto_complete<T: AsRef<str>>(ui: &mut Ui, popup_id: Id, suggestions: &[T], cu
         ui.memory_mut(|m| m.open_popup(popup_id));
     }
 
-    popup_below_widget(ui, popup_id, &text_edit, |ui| {
+    popup_below_widget(ui, popup_id, &text_edit, PopupCloseBehavior::CloseOnClickOutside, |ui| {
         ScrollArea::vertical()
             .max_height(ui.spacing().combo_height)
             .show(ui, |ui| {

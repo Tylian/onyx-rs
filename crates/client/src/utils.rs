@@ -1,7 +1,4 @@
 // use notan::{draw::*, math::*, prelude::Color};
-
-use std::ops::Deref;
-
 use ggez::{context::Has, glam::Vec2, graphics::{Canvas, Color, DrawParam, Drawable, GraphicsContext, Rect, Text, Transform}};
 
 #[macro_export]
@@ -104,29 +101,29 @@ impl<'a> Drawable for OutlinedText<'a> {
     }
 }
 
-pub fn draw_text_outline<'a, FP, FT>(canvas: &mut Canvas, text_builder: FT, param_builder: FP)
-    where FT: FnOnce() -> Text,
-          FP: Fn(Vec2, bool) -> DrawParam
-{
-    let outlines = &[
-        Vec2::new(1.0, 0.0),
-        Vec2::new(-1.0, 0.0),
-        Vec2::new(0.0, 1.0),
-        Vec2::new(0.0, -1.0),
-        Vec2::new(-1.0, -0.0),
-        Vec2::new(-1.0, 1.0),
-        Vec2::new(1.0, -1.0),
-        Vec2::new(1.0, 1.0),
-    ];
+// pub fn draw_text_outline<FP, FT>(canvas: &mut Canvas, text_builder: FT, param_builder: FP)
+//     where FT: FnOnce() -> Text,
+//           FP: Fn(Vec2, bool) -> DrawParam
+// {
+//     let outlines = &[
+//         Vec2::new(1.0, 0.0),
+//         Vec2::new(-1.0, 0.0),
+//         Vec2::new(0.0, 1.0),
+//         Vec2::new(0.0, -1.0),
+//         Vec2::new(-1.0, -0.0),
+//         Vec2::new(-1.0, 1.0),
+//         Vec2::new(1.0, -1.0),
+//         Vec2::new(1.0, 1.0),
+//     ];
 
-    let text = text_builder();
+//     let text = text_builder();
 
-    for outline in outlines {
-        canvas.draw(&text, param_builder(*outline, true));
-    }
+//     for outline in outlines {
+//         canvas.draw(&text, param_builder(*outline, true));
+//     }
 
-    canvas.draw(&text, param_builder(Vec2::ZERO, false));
-}
+//     canvas.draw(&text, param_builder(Vec2::ZERO, false));
+// }
 
 // pub fn rect(x: f32, y: f32, width: f32, height: f32) -> Rect {
 //     Rect {

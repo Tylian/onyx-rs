@@ -8,7 +8,8 @@ mod utils;
 
 use std::path::PathBuf;
 
-use ggegui::{egui, Gui};
+use ggegui::egui::load::SizedTexture;
+use ggegui::Gui;
 use ggez::conf::{WindowMode, WindowSetup};
 use ggez::event::EventHandler;
 use ggez::{event, ContextBuilder};
@@ -98,6 +99,11 @@ impl EventHandler for GameHandler {
         Ok(())
     }
 
+    fn mouse_wheel_event(&mut self, ctx: &mut Context, x: f32, y: f32) -> GameResult {
+        self.scenes.state.gui.input.mouse_wheel_event(x, y, ctx.keyboard.active_mods());
+        Ok(())
+    }
+
     fn text_input_event(&mut self, ctx: &mut Context, character: char) -> GameResult {
         self.scenes.state.gui.input.text_input_event(character);
         self.scenes.event(ctx, GameEvent::TextInput(character))
@@ -132,7 +138,7 @@ enum GameEvent {
 pub struct AssetCache {
     sprites: Image,
     tileset: Image,
-    tileset_egui: egui::TextureHandle
+    tileset_egui: SizedTexture,
 }
 
 impl AssetCache {
@@ -140,18 +146,20 @@ impl AssetCache {
         let sprites = graphics::Image::from_path(ctx, "/sprites.png")?;
         let tileset = graphics::Image::from_path(ctx, "/tilesets/default.png")?;
 
-        let pixels = tileset.to_pixels(ctx)?;
+        let tileset_egui = gui.allocate_texture(tileset.clone());
 
-        let color_image = egui::ColorImage::from_rgba_unmultiplied(
-            [tileset.width() as usize, tileset.height() as usize], 
-            &pixels
-        );
+        // let pixels = tileset.to_pixels(ctx)?;
 
-        let tileset_egui = gui.ctx().load_texture(
-            "tileset",
-            color_image,
-            Default::default()
-        );
+        // let color_image = egui::ColorImage::from_rgba_unmultiplied(
+        //     [tileset.width() as usize, tileset.height() as usize], 
+        //     &pixels
+        // );
+
+        // let tileset_egui = gui.ctx().load_texture(
+        //     "tileset",
+        //     color_image,
+        //     Default::default()
+        // );
 
         Ok(Self {
             sprites,

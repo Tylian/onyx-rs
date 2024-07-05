@@ -2,12 +2,11 @@ mod data;
 mod player;
 
 use std::{
-    collections::{hash_map::Entry, HashMap, HashSet}, path::PathBuf, time::{Duration, Instant}
+    collections::{hash_map::Entry, HashMap}, path::PathBuf, time::{Duration, Instant}
 };
 
 use anyhow::{bail, Context, Result};
 use base64ct::{Base64, Encoding};
-use bimap::BiMap;
 use common::{
     network::{
         client::Packet as ClientPacket,
@@ -19,14 +18,14 @@ use common::{
 use env_logger::WriteStyle;
 use euclid::default::{Box2D, Point2D, Size2D, Vector2D};
 use log::LevelFilter;
-use message_io::{
-    network::{Endpoint, NetworkController, Transport},
-    node::{self, NodeHandler, StoredNetEvent},
-};
+use network::Network;
 use rand::prelude::*;
+use renet::{ClientId, DefaultChannel, ServerEvent};
 use sha2::{Digest, Sha256};
 
 use crate::data::{Config, Map, NameCache, Player};
+
+mod network;
 
 fn main() -> Result<()> {
     if let Ok(runtime) = std::env::var("RUNTIME_PATH") {
@@ -54,17 +53,15 @@ struct WarpParams {
 }
 
 struct GameServer {
+    network: Network,
     config: Config,
     players: HashMap<Entity, Player>,
-    peer_map: BiMap<Entity, Endpoint>,
-    endpoints: HashSet<Endpoint>,
-    next_idx: u64,
     maps: HashMap<MapId, Map>,
     start: Instant,
     time_since_start: Duration,
+    next_entity: u64,
     /// Time since last update
     dt: Duration,
-    handler: Option<NodeHandler<()>>,
     _rng: ThreadRng,
 }
 
@@ -77,36 +74,22 @@ impl GameServer {
             e.insert(create_map(MapId::default()));
         }
 
+        let network = Network::listen(&config);
+
         Ok(Self {
+            network,
             config,
             players: HashMap::new(),
-            peer_map: BiMap::new(),
-            endpoints: HashSet::new(),
-            next_idx: 0,
             start: Instant::now(),
             time_since_start: Duration::ZERO,
             dt: Duration::ZERO,
-            handler: None,
+            next_entity: 0,
             maps,
             _rng: rand::thread_rng(),
         })
     }
 
     fn run(mut self) {
-        let (handler, listener) = node::split::<()>();
-        handler
-            .network()
-            .listen(Transport::FramedTcp, self.config.listen.clone())
-            .unwrap();
-
-        self.handler = Some(handler);
-
-        log::info!("Listening on {}", self.config.listen);
-
-        let (_task, mut receive) = listener.enqueue();
-
-        self.start = Instant::now();
-
         loop {
             let since_start = self.start.elapsed();
             let dt = since_start - self.time_since_start;
@@ -114,93 +97,133 @@ impl GameServer {
             self.time_since_start = since_start;
             self.dt = dt;
 
-            while let Some(event) = receive.try_receive() {
-                match event.network() {
-                    StoredNetEvent::Connected(_, _) => unreachable!(),
-                    StoredNetEvent::Accepted(endpoint, _listener) => {
-                        self.endpoints.insert(endpoint);
-
-                        log::info!(
-                            "Client ({}) connected (total clients: {})",
-                            endpoint.addr(),
-                            self.endpoints.len()
-                        );
-                    }
-                    StoredNetEvent::Message(endpoint, bytes) => {
-                        let message = rmp_serde::from_slice(&bytes).unwrap();
-
-                        if let Err(e) = self.handle_message(endpoint, message) {
-                            self.endpoints.remove(&endpoint);
-                            self.handle_disconnect(endpoint);
-                            log::warn!(
-                                "Disconnecting client ({}), message handler returned an error: {e}",
-                                endpoint.addr(),
-                            );
-                        }
-                    }
-                    StoredNetEvent::Disconnected(endpoint) => {
-                        self.endpoints.remove(&endpoint);
-                        self.handle_disconnect(endpoint);
-                    }
-                }
-            }
-
-            // game loop
-            self.tick();
+            self.update_network();
+            self.update_tick();
 
             // finalizing
             self.maintain();
+
             std::thread::sleep(Duration::from_secs_f64(1.0 / 30.0));
         }
     }
 
-    fn handle_disconnect(&mut self, endpoint: Endpoint) {
+    fn update_network(&mut self) {
+        self.network.server.update(self.dt);
+        self.network.transport.update(self.dt, &mut self.network.server).unwrap();
+
+        while let Some(event) = self.network.server.get_event() {
+            match event {
+                ServerEvent::ClientConnected { client_id } => {
+                    self.network.client_ids.insert(client_id);
+                    log::info!(
+                        "Client ({}) connected (total clients: {})",
+                        client_id,
+                        self.network.client_ids.len()
+                    );
+                }
+                ServerEvent::ClientDisconnected { client_id, reason } => {
+                    self.network.client_ids.remove(&client_id);
+                    self.handle_disconnect(client_id, reason.to_string());
+                }
+            }
+        }
+
+        for client_id in self.network.server.clients_id() {
+            while let Some(bytes) = self.network.server.receive_message(client_id, DefaultChannel::ReliableUnordered) {
+                println!("got bytes");
+                if let Ok(message) = rmp_serde::from_slice(&bytes) {
+                    if let Err(e) = self.handle_message(client_id, message) {
+                        self.network.server.disconnect(client_id);
+                        log::warn!(
+                            "Disconnecting client ({}), message handler returned an error: {e}",
+                            client_id,
+                        );
+                    }
+                }
+            }
+        }
+
+        self.network.transport.send_packets(&mut self.network.server);
+
+        // while let Some(event) = receive.try_receive() {
+        //     match event.network() {
+        //         StoredNetEvent::Connected(_, _) => unreachable!(),
+        //         StoredNetEvent::Accepted(client_id, _listener) => {
+        //             self.client_ids.insert(client_id);
+
+        //             log::info!(
+        //                 "Client ({}) connected (total clients: {})",
+        //                 client_id.addr(),
+        //                 self.client_ids.len()
+        //             );
+        //         }
+        //         StoredNetEvent::Message(client_id, bytes) => {
+        //             let message = rmp_serde::from_slice(&bytes).unwrap();
+
+        //             if let Err(e) = self.handle_message(client_id, message) {
+        //                 self.client_ids.remove(&client_id);
+        //                 self.handle_disconnect(client_id);
+        //                 log::warn!(
+        //                     "Disconnecting client ({}), message handler returned an error: {e}",
+        //                     client_id.addr(),
+        //                 );
+        //             }
+        //         }
+        //         StoredNetEvent::Disconnected(client_id) => {
+        //             self.client_ids.remove(&client_id);
+        //             self.handle_disconnect(client_id);
+        //         }
+        //     }
+        // }
+    }
+
+    fn handle_disconnect(&mut self, client_id: ClientId, reason: String) {
         log::info!(
-            "Client ({}) disconnected (total clients: {})",
-            endpoint.addr(),
-            self.endpoints.len()
+            "Client ({}) disconnected (total clients: {}): {}",
+            client_id,
+            self.network.client_ids.len(),
+            reason
         );
 
-        let Some(&entity) = self.peer_map.get_by_right(&endpoint) else {
+        let Some(&entity) = self.network.peer_map.get_by_right(&client_id) else {
             return;
         };
 
-
         if let Some(player) = self.players.remove(&entity) {
-            let players = self.players
+            let players: Vec<_> = self.players
                 .iter()
                 .filter_map(|(&id, data)| (data.map == player.map).then_some(id))
-                .collect::<Vec<_>>();
+                .collect();
 
-            self.send_list(&players, &Packet::RemoveData(entity));
+            self.network.send_list(&players, &Packet::RemoveData(entity));
 
             let goodbye = Packet::ChatLog(ChatChannel::Server, format!("{} has left the game.", &player.name));
-            self.send_exclude(entity, &goodbye);
+            self.network.broadcast_except(entity, &goodbye);
 
             player.save().unwrap();
         }
 
-        self.peer_map.remove_by_right(&endpoint);
+        self.network.peer_map.remove_by_right(&client_id);
     }
 
-    fn handle_message(&mut self, endpoint: Endpoint, message: ClientPacket) -> Result<()> {
+    fn handle_message(&mut self, client_id: ClientId, message: ClientPacket) -> Result<()> {
         use common::network::client::Packet::*;
 
         match &message {
-            SaveMap(_) => log::debug!("{}: SaveMap(..)", endpoint.addr()),
+            SaveMap(_) => log::debug!("{}: SaveMap(..)", client_id),
             message => {
-                log::debug!("{}: {:?}", endpoint.addr(), message);
+                log::debug!("{}: {:?}", client_id, message);
             }
         }
 
-        if let Some(&entity) = self.peer_map.get_by_right(&endpoint) {
+        if let Some(&entity) = self.network.peer_map.get_by_right(&client_id) {
             self.handle_game_message(entity, message)
         } else {
-            self.handle_login_message(endpoint, message)
+            self.handle_login_message(client_id, message)
         }
     }
 
-    fn handle_login_message(&mut self, endpoint: Endpoint, message: ClientPacket) -> Result<()> {
+    fn handle_login_message(&mut self, client_id: ClientId, message: ClientPacket) -> Result<()> {
         match message {
             ClientPacket::CreateAccount {
                 username,
@@ -210,11 +233,11 @@ impl GameServer {
                 let mut name_cache = NameCache::load().unwrap();
 
                 if Player::path(&username).exists() {
-                    self.send_to(endpoint, &Packet::FailedJoin(FailJoinReason::UsernameTaken));
+                    self.network.send_to(client_id, &Packet::FailedJoin(FailJoinReason::UsernameTaken));
                 }
 
                 if name_cache.contains(&name) {
-                    self.send_to(endpoint, &Packet::FailedJoin(FailJoinReason::CharacterNameTaken));
+                    self.network.send_to(client_id, &Packet::FailedJoin(FailJoinReason::CharacterNameTaken));
                 }
 
                 name_cache.insert(name.clone());
@@ -233,14 +256,14 @@ impl GameServer {
 
                 player.save().unwrap();
 
-                self.join_game(endpoint, player);
+                self.join_game(client_id, player);
             }
             ClientPacket::Login { username, password } => {
                 if let Some(player) = Self::check_password(&username, &password) {
-                    self.join_game(endpoint, player);
+                    self.join_game(client_id, player);
                 } else {
                     let incorrect = Packet::FailedJoin(FailJoinReason::LoginIncorrect);
-                    self.send_to(endpoint, &incorrect);
+                    self.network.send_to(client_id, &incorrect);
                 }
             }
             _ => {
@@ -280,7 +303,7 @@ impl GameServer {
                 let map = &self.maps[&self.players[&entity].map];
 
                 let packet = Packet::MapData(Box::new(map.clone().into()));
-                self.send(entity, &packet);
+                self.network.send(entity, &packet);
             }
             ClientPacket::SaveMap(map) => {
                 use std::time::SystemTime;
@@ -298,7 +321,8 @@ impl GameServer {
                 }
 
                 self.maps.insert(map_id, map.clone());
-                self.send_to_map(map_id, &Packet::MapData(Box::new(map.into())));
+                let map_list = self.entities_on_map(map_id);
+                self.network.send_list(&map_list, &Packet::MapData(Box::new(map.into())));
             }
             ClientPacket::Move {
                 position,
@@ -359,7 +383,8 @@ impl GameServer {
                 let map_id = player.map;
                 let flags = player.flags;
 
-                self.send_to_map(map_id, &Packet::Flags(entity, flags));
+                let entities = self.entities_on_map(map_id);
+                self.network.send_list(&entities, &Packet::Flags(entity, flags));
 
                 if open {
                     self.send_map_editor(entity, map_id)?;
@@ -383,18 +408,19 @@ impl GameServer {
             }
             ChatChannel::Server => {
                 let packet = Packet::ChatLog(ChatChannel::Server, message.to_string());
-                self.send_all(&packet);
+                self.network.broadcast(&packet);
             }
             ChatChannel::Say => {
                 let full_text = format!("{}: {}", player.name, message);
 
                 let packet = Packet::ChatLog(ChatChannel::Say, full_text);
-                self.send_to_map(player.map, &packet);
+                let entities = self.entities_on_map(player.map);
+                self.network.send_list(&entities, &packet);
             }
             ChatChannel::Global => {
                 let full_text = format!("{}: {}", player.name, message);
                 let packet = Packet::ChatLog(ChatChannel::Global, full_text);
-                self.send_all(&packet);
+                self.network.broadcast(&packet);
             }
         }
     }
@@ -413,7 +439,7 @@ impl GameServer {
                     },
                 );
             } else {
-                self.send(
+                self.network.send(
                     entity,
                     &Packet::ChatLog(ChatChannel::Error, String::from("Usage: /warp <map id>")),
                 );
@@ -439,14 +465,16 @@ impl GameServer {
                 };
 
                 let player = self.players.get(&other_entity).unwrap();
-                self.send_to_map(player.map, &Packet::PlayerData(other_entity, player.clone().into()));
+                let packet = Packet::PlayerData(other_entity, player.clone().into());
+                let entities = self.entities_on_map(player.map);
+                self.network.send_list(&entities, &packet);
 
                 Ok(())
             })();
 
             if let Err(e) = result {
                 let error = format!("Error: {}\nUsage: /sprite <player name> <sprite #>", e);
-                self.send(entity, &Packet::ChatLog(ChatChannel::Error, error));
+                self.network.send(entity, &Packet::ChatLog(ChatChannel::Error, error));
             }
 
             return Some("/sprite");
@@ -455,7 +483,7 @@ impl GameServer {
         None
     }
 
-    fn send_map_editor(&self, entity: Entity, map_id: MapId) -> Result<()> {
+    fn send_map_editor(&mut self, entity: Entity, map_id: MapId) -> Result<()> {
         let maps = self
             .maps
             .values()
@@ -470,7 +498,7 @@ impl GameServer {
         let height = map.height;
         let settings = map.settings.clone();
 
-        self.send(
+        self.network.send(
             entity,
             &Packet::MapEditor {
                 maps,
@@ -484,10 +512,10 @@ impl GameServer {
         Ok(())
     }
 
-    fn join_game(&mut self, endpoint: Endpoint, mut player: Player) {
-        // Allocate an entity with an associated endpoint
+    fn join_game(&mut self, client_id: ClientId, mut player: Player) {
+        // Allocate an entity with an associated client_id
         let entity = self.next_entity();
-        self.peer_map.insert(entity, endpoint);
+        self.network.peer_map.insert(entity, client_id);
 
         // Make sure they're on a valid map, and if they're not move them.
         if !self.maps.contains_key(&player.map) {
@@ -499,7 +527,7 @@ impl GameServer {
         self.players.insert(entity, player.clone());
 
         // Send them their ID
-        self.send(entity, &Packet::JoinGame(entity));
+        self.network.send(entity, &Packet::JoinGame(entity));
 
         self.warp_player(
             entity,
@@ -511,19 +539,19 @@ impl GameServer {
         );
 
         // Send welcome message
-        self.send(
+        self.network.send(
             entity,
             &Packet::ChatLog(ChatChannel::Server, "Welcome to Game™!".to_owned()),
         );
 
         // Send join message
-        self.send_exclude(
+        self.network.broadcast_except(
             entity,
             &Packet::ChatLog(ChatChannel::Server, format!("{} has joined the game.", &player.name)),
         );
     }
 
-    fn tick(&mut self) {
+    fn update_tick(&mut self) {
         self.update_players();
     }
 
@@ -642,7 +670,8 @@ impl GameServer {
 
         // TODO Map-warp ordering?
         for (map, entity, packet) in position_updates {
-            self.send_map_except(map, entity, &packet);
+            let entities = self.entities_on_map_except(map, entity);
+            self.network.send_list(&entities, &packet);
         }
 
         for (entity, map_id, params) in to_warp {
@@ -669,13 +698,14 @@ impl GameServer {
         // check if we're actually changing maps, or if we're just moving to a new position.
         if params.initial || self.players[&entity].map != map_id {
             if !params.initial {
-                self.send_map_except(old_map, entity, &Packet::RemoveData(entity));
+                let entities = self.entities_on_map_except(old_map, entity);
+                self.network.send_list(&entities, &Packet::RemoveData(entity));
             }
 
             self.players.get_mut(&entity).unwrap().map = map_id;
             let cache_key = self.maps[&map_id].settings.cache_key;
 
-            self.send(entity, &Packet::ChangeMap(map_id, cache_key));
+            self.network.send(entity, &Packet::ChangeMap(map_id, cache_key));
 
             let packets = self
                 .players
@@ -685,11 +715,13 @@ impl GameServer {
                 .collect::<Vec<_>>();
 
             for packet in packets {
-                self.send(entity, &packet);
+                self.network.send(entity, &packet);
             }
 
             let player_data = self.players[&entity].clone();
-            self.send_to_map(map_id, &Packet::PlayerData(entity, player_data.into()));
+            let packet = Packet::PlayerData(entity, player_data.into());
+            let entities = self.entities_on_map(map_id);
+            self.network.send_list(&entities, &packet);
         }
 
         if let Some(player) = self.players.get_mut(&entity) {
@@ -708,7 +740,8 @@ impl GameServer {
             };
 
             player.save().unwrap();
-            self.send_to_map(map_id, &packet);
+            let entities = self.entities_on_map(map_id);
+            self.network.send_list(&entities, &packet);
         }
     }
 
@@ -717,79 +750,29 @@ impl GameServer {
     }
 
     fn next_entity(&mut self) -> Entity {
-        let idx = self.next_idx;
-        self.next_idx += 1;
+        let idx = self.next_entity;
+        self.next_entity += 1;
 
         Entity(idx)
+    }
+
+    fn entities_on_map(&self, map_id: MapId) -> Vec<Entity> {
+        self.players.iter()
+            .filter(move |(_entity, player)| player.map == map_id)
+            .map(|(entity, _player)| *entity)
+            .collect()
+    }
+
+    fn entities_on_map_except(&self, map_id: MapId, exclude: Entity) -> Vec<Entity>  {
+        self.players.iter()
+            .filter(move |(entity, player)| player.map == map_id && **entity != exclude)
+            .map(|(entity, _player)| *entity)
+            .collect()
     }
 }
 
 /// Network convenience
-impl GameServer {
-    pub fn network(&self) -> &NetworkController {
-        self.handler.as_ref().unwrap().network()
-    }
 
-    pub fn send_to(&self, endpoint: Endpoint, message: &Packet) {
-        let bytes = rmp_serde::to_vec(&message).unwrap();
-        self.network().send(endpoint, &bytes);
-    }
-
-    pub fn send(&self, entity: Entity, message: &Packet) {
-        if let Some(endpoint) = self.peer_map.get_by_left(&entity) {
-            let bytes = rmp_serde::to_vec(&message).unwrap();
-            self.network().send(*endpoint, &bytes);
-        }
-    }
-
-    #[inline]
-    fn send_bytes(&self, entity: Entity, bytes: &[u8]) {
-        if let Some(endpoint) = self.peer_map.get_by_left(&entity) {
-            self.network().send(*endpoint, bytes);
-        }
-    }
-
-    pub fn send_exclude(&self, exclude: Entity, message: &Packet) {
-        let bytes = rmp_serde::to_vec(&message).unwrap();
-        for (&entity, &endpoint) in &self.peer_map {
-            if entity != exclude {
-                self.network().send(endpoint, &bytes);
-            }
-        }
-    }
-
-    pub fn send_list(&self, entity_list: &[Entity], message: &Packet) {
-        let bytes = rmp_serde::to_vec(&message).unwrap();
-        for entity in entity_list {
-            self.send_bytes(*entity, &bytes);
-        }
-    }
-
-    pub fn send_to_map(&self, map_id: MapId, message: &Packet) {
-        let bytes = rmp_serde::to_vec(&message).unwrap();
-        for (entity, player) in &self.players {
-            if player.map == map_id {
-                self.send_bytes(*entity, &bytes);
-            }
-        }
-    }
-
-    pub fn send_map_except(&self, map_id: MapId, exclude_id: Entity, message: &Packet) {
-        let bytes = rmp_serde::to_vec(&message).unwrap();
-        for (entity, player) in &self.players {
-            if player.map == map_id && *entity != exclude_id {
-                self.send_bytes(*entity, &bytes);
-            }
-        }
-    }
-
-    pub fn send_all(&self, message: &Packet) {
-        let bytes = rmp_serde::to_vec(&message).unwrap();
-        for &endpoint in self.peer_map.right_values() {
-            self.network().send(endpoint, &bytes);
-        }
-    }
-}
 
 fn check_bounds(position: Point2D<f32>, bounds: Box2D<f32>) -> Option<Direction> {
     let bounds = bounds.to_rect();

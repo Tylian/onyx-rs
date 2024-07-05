@@ -14,10 +14,10 @@ common = { package = "common", path = "../common" }
 env_logger = "0.11.1"
 euclid = { version = "0.22.7", features = ["mint", "serde"] }
 log = "0.4.17"
-message-io = { version = "0.14.5", default_features = false, features = ["tcp"] }
 mint = { version = "0.5.9", features = ["serde"] }
 ndarray = { version = "0.15.4", features = ["serde"] }
 rand = "0.8.5"
+renet = "0.0.15"
 rmp-serde = "1.1.0"
 serde = "1.0.137"
 sha2 = "0.10.2"

@@ -227,7 +227,7 @@ impl MapEditor {
                         ui.add(
                             DragValue::new(&mut self.tile_animation.duration)
                                 .speed(0.01f64)
-                                .clamp_range(0.0..=f64::MAX)
+                                .range(0.0..=f64::MAX)
                                 .suffix("s"),
                         );
                         ui.end_row();
@@ -236,7 +236,7 @@ impl MapEditor {
                         ui.add(
                             DragValue::new(&mut self.tile_animation.frames)
                                 .speed(0.1f64)
-                                .clamp_range(0.0..=f64::MAX),
+                                .range(0.0..=f64::MAX),
                         );
                         ui.end_row();
                     });
@@ -246,11 +246,9 @@ impl MapEditor {
 
         ui.add_space(3.0);
         let tileset = &assets.tileset_egui;
-        let size = vec2(assets.tileset.width() as f32, assets.tileset.height() as f32);
         tile_selector(
             ui,
-            tileset.id(),
-            size.into(),
+            *tileset,
             &mut self.tile_picker,
             Vec2::new(TILE_SIZE as f32, TILE_SIZE as f32),
         );
@@ -300,9 +298,9 @@ impl MapEditor {
                                 ui.label("Position:");
                                 ui.horizontal(|ui| {
                                     ui.label("X: ");
-                                    ui.add(DragValue::new(&mut position.x).clamp_range(0.0..=f32::INFINITY));
+                                    ui.add(DragValue::new(&mut position.x).range(0.0..=f32::INFINITY));
                                     ui.label("Y: ");
-                                    ui.add(DragValue::new(&mut position.y).clamp_range(0.0..=f32::INFINITY));
+                                    ui.add(DragValue::new(&mut position.y).range(0.0..=f32::INFINITY));
                                 });
                                 ui.end_row();
 
@@ -454,7 +452,7 @@ impl MapEditor {
             ui.label("Width:");
             ui.add(
                 DragValue::new(&mut self.new_width)
-                    .clamp_range(0..=u32::MAX)
+                    .range(0..=u32::MAX)
                     .speed(0.05)
                     .suffix(" tiles"),
             );
@@ -463,7 +461,7 @@ impl MapEditor {
             ui.label("Height:");
             ui.add(
                 DragValue::new(&mut self.new_height)
-                    .clamp_range(0..=u32::MAX)
+                    .range(0..=u32::MAX)
                     .speed(0.05)
                     .suffix(" tiles"),
             );

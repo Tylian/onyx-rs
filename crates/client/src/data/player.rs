@@ -50,6 +50,7 @@ pub struct Player {
     pub name: String,
     pub position: Vec2,
     pub velocity: Vec2,
+    pub acceleration: Vec2,
     pub interpolation: Option<Interpolation>,
     pub last_update: f32,
     pub animation: Animation,
@@ -75,6 +76,7 @@ impl Player {
                 Animation::Standing
             },
             velocity,
+            acceleration: Vec2::ZERO,
             sprite: data.sprite,
             direction: data.direction,
             last_update: time,
