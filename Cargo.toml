@@ -1,3 +1,58 @@
-[workspace]
-resolver ="2"
-members = ["crates/common", "crates/client", "crates/server"]
+[package]
+name = "onyx"
+version = "0.1.0"
+authors = ["Tylian <immatyger@gmail.com>"]
+edition = "2021"
+
+[[bin]]
+name = "client"
+path = "src/client/main.rs"
+
+[[bin]]
+name = "server"
+path = "src/server/main.rs"
+
+[profile.dev.package."*"]
+opt-level = 3
+
+[dependencies]
+# error handling
+anyhow = "1.0.86"
+thiserror = "1.0.61"
+
+# rendering
+ggez = "0.9.3"
+ggegui = { git = "https://github.com/Tylian/ggegui" }
+egui_extras = "0.28.0"
+
+# math
+glam = { version = "0.24.0", features = ["mint", "serde"] } # Pinned to same version as ggez
+euclid = { version = "0.22.10", features = ["mint", "serde"] }
+mint = { version = "0.5.9", features = ["serde"] }
+ndarray = { version = "0.15.4", features = ["serde"] }
+
+# networking
+renet = "0.0.15"
+
+# serde
+serde = "1.0.137"
+rmp-serde = "1.1.0"
+toml = "0.8.14"
+
+# logging
+log = "0.4.20"
+env_logger = "0.11.1"
+
+# etc
+bimap = "0.6.3"
+chrono = { version = "0.4.19", default-features = false, features = ["std", "clock"] }
+crc = "3.0.0"
+base64ct = { version = "1.5.1", features = ["alloc"] }
+uuid = { version = "1.1.2", features = ["v4", "serde", "fast-rng"] }
+sha2 = "0.10.2"
+globwalk = "0.9.1"
+rand = "0.8.5"
+strum = { version = "0.26.1", features = ["derive"] }
+paste = "1.0.15"
+
+
