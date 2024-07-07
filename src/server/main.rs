@@ -128,7 +128,6 @@ impl GameServer {
 
         for client_id in self.network.server.clients_id() {
             while let Some(bytes) = self.network.server.receive_message(client_id, DefaultChannel::ReliableUnordered) {
-                println!("got bytes");
                 if let Ok(message) = rmp_serde::from_slice(&bytes) {
                     if let Err(e) = self.handle_message(client_id, message) {
                         self.network.server.disconnect(client_id);

@@ -1,5 +1,5 @@
 use onyx::{
-    network::{Direction, Entity, Player as NetworkPlayer, PlayerFlags}, SPRITE_SIZE, TILE_SIZE
+    network::{Direction, Entity, Player as NetworkPlayer, PlayerFlags}, ACCELERATION, FRICTION, RUN_SPEED, SPRITE_SIZE, TILE_SIZE
 };
 
 use onyx::math::units::world::*;
@@ -52,6 +52,9 @@ pub struct Player {
     pub position: Point2D,
     pub velocity: Vector2D,
     pub acceleration: Vector2D,
+    pub test_acceleration: f32,
+    pub test_friction: f32,
+    pub max_speed: f32, // todo: eulcid::Scale?
     pub interpolation: Option<Interpolation>,
     pub last_update: f32,
     pub animation: Animation,
@@ -78,6 +81,9 @@ impl Player {
             },
             velocity,
             acceleration: Vector2D::zero(),
+            test_acceleration: ACCELERATION,
+            test_friction: FRICTION,
+            max_speed: RUN_SPEED,
             sprite: data.sprite,
             direction: data.direction,
             last_update: time,
@@ -196,5 +202,13 @@ impl Player {
             .dest(self.position.round())
             .src(uv)
         );
+    }
+
+    // only block on the bottom half of the sprite, feels better
+    pub fn collision_box(position: Point2D) -> Box2D {
+        Box2D::from_origin_and_size(
+            position + Vector2D::new(0.0, SPRITE_SIZE / 2.0),
+            Size2D::new(SPRITE_SIZE, SPRITE_SIZE / 2.0)
+        )
     }
 }

@@ -4,10 +4,10 @@ use onyx::network::client::Packet;
 use ggez::{Context, GameResult, graphics::{Color, Canvas, DrawParam}};
 use renet::DefaultChannel;
 use serde::{Deserialize, Serialize};
-use ggegui::{egui, Gui, GuiContext};
+use ggegui::{egui, GuiContext};
 
 use crate::{
-    game::GameScene, network::Network, scene::{Scene, Transition}, GameEvent, GameState
+    game::GameScene, network::Network, scene::Transition, GameEvent, GameState
 };
 
 pub struct TitleScene {
@@ -26,10 +26,9 @@ pub struct TitleScene {
 }
 
 impl TitleScene {
-    pub fn new(ctx: &mut Context) -> GameResult<Self> {
+    pub fn new(_ctx: &mut Context) -> GameResult<Self> {
         let settings = Settings::load().unwrap_or_default();
         let server_addr: SocketAddr = settings.address.parse().unwrap();
-        println!("{server_addr:?}");
 
         Ok(Self {
             loading: true,

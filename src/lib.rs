@@ -6,6 +6,9 @@ pub const SPRITE_SIZE: f32 = 48.0;
 pub const WALK_SPEED: f32 = 2.5 * TILE_SIZE;
 pub const RUN_SPEED: f32 = 5.0 * TILE_SIZE;
 
+pub const ACCELERATION: f32 = RUN_SPEED * 10.0;
+pub const FRICTION: f32 = ACCELERATION * 0.3;
+
 // pub struct ScreenUnit;
 // pub type ScreenPoint = Point2D<f32, ScreenUnit>;
 // pub type ScreenVec = Vector2D<f32, ScreenUnit>;

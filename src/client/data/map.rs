@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use anyhow::Result;
+use ggez::GameResult;
 use onyx::math::units::map::*;
 use onyx::math::units::world;
 use onyx::network::{Map as NetworkMap, MapLayer, MapSettings, TileAnimation, ZoneData, MapId};
@@ -12,10 +13,11 @@ use ndarray::{azip, indices, Array2, Zip};
 use ggez::{graphics::Canvas, glam::*};
 use strum::{EnumCount, IntoEnumIterator};
 
+use crate::utils::OutlinedText;
 use crate::AssetCache;
 // use crate::assets::Assets;
 // use crate::utils::draw_text_shadow;
-use crate::utils::{ping_pong/* , RectExt, draw_text_shadow, rect */};
+use crate::utils::ping_pong;
 
 mod interop;
 
@@ -191,54 +193,45 @@ impl AttributeDataEx for ZoneData {
 }
 
 #[allow(unused)]
-pub fn draw_zone(canvas: &mut Canvas, position: world::Box2D, data: &ZoneData, assets: &mut AssetCache) {
+pub fn draw_zone(ctx: &mut Context, canvas: &mut Canvas, position: world::Box2D, data: &ZoneData) -> GameResult {
+    use ggez::graphics::*;
+
     let color = data.color();
-    let text = data.text();
+    let background_color = Color::new(color.r, color.g, color.b, 0.4);
 
     // todo ggez::graphics::Mesh::new_rectangle
+    let rect = Rect::new(position.min.x, position.min.y, position.width(), position.height());
+
+    let background = ggez::graphics::Mesh::new_rectangle(
+        ctx,
+        DrawMode::fill(),
+        rect,
+        background_color
+    )?;
+
+    let outline = ggez::graphics::Mesh::new_rectangle(
+        ctx,
+        DrawMode::stroke(1.0),
+        rect,
+        color
+    )?;
+
+    canvas.draw(&background, DrawParam::default());
+    canvas.draw(&outline, DrawParam::default());
+
+    let mut text = Text::new(data.text());
+    text.set_layout(TextLayout::center());
+    text.set_scale(PxScale::from(16.0));
 
     canvas.draw(
-        &graphics::Quad,
+        &OutlinedText::new(&text),
         DrawParam::default()
-            .dest(position.min)
-            .scale(position.size())
+            .dest(position.center())
             .color(color)
     );
 
-    // draw.rect((position.x, position.y), (position.width, position.height))
-    //     .fill_color(color.with_alpha(0.4))
-    //     .fill()
-    //     .stroke_color(color)
-    //     .stroke(1.0);
-
-    // let Rect { x, y, w, h } = position;
-    // draw_rectangle(x, y, w, h, Color::new(color.r, color.g, color.b, 0.4));
-    // draw_rectangle_lines(x, y, w, h, 1.0, color);
-
-    let text_pos = position.center();
-
-    // draw_text_shadow(
-    //     draw,
-    //     &assets.font.lock().unwrap(),
-    //     &text,
-    //     text_pos,
-    //     |text| {
-    //         text.color(color)
-    //             .v_align_middle()
-    //             .h_align_center();
-    //     }
-    // );
-
-    // draw_text_shadow(
-    //     &text,
-    //     text_pos,
-    //     TextParams {
-    //         font: assets.font,
-    //         font_size: 16,
-    //         color,
-    //         ..Default::default()
-    //     },
-    // );
+  
+  Ok(())
 }
 
 #[derive(Clone, Debug)]
@@ -248,8 +241,8 @@ pub struct Zone {
 }
 
 impl Zone {
-    pub fn draw(&self, canvas: &mut Canvas, assets: &mut AssetCache) {
-        draw_zone(canvas, self.position, &self.data, assets);
+    pub fn draw(&self, ctx: &mut Context, canvas: &mut Canvas) -> GameResult {
+        draw_zone(ctx, canvas, self.position, &self.data)
     }
 }
 
@@ -380,10 +373,12 @@ impl Map {
         }
     }
 
-    pub fn draw_zones(&self, canvas: &mut Canvas, assets: &mut AssetCache) {
+    pub fn draw_zones(&self, ctx: &mut Context, canvas: &mut Canvas) -> GameResult {
         for attrib in &self.zones {
-            attrib.draw(canvas, assets);
+            attrib.draw(ctx, canvas)?
         }
+
+        Ok(())
     }
 
     pub fn update_autotile_cache(&mut self) {

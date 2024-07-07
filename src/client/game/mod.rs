@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 
 use euclid::{approxeq::ApproxEq, size2};
-use onyx::{
-    math::units::{screen, map, world::{self, *}}, network::{client::Packet, server::Packet as ServerPacket, ChatChannel, Direction, Entity, MapId, MapLayer, ZoneData}, RUN_SPEED, SPRITE_SIZE, TILE_SIZE, WALK_SPEED
-};
+use onyx::{ACCELERATION, FRICTION, RUN_SPEED, SPRITE_SIZE, TILE_SIZE, WALK_SPEED};
+use onyx::math::units::{map, screen, world::{self, *}};
+use onyx::network::{client::Packet, server::Packet as ServerPacket, ChatChannel, Direction, Entity, MapId, MapLayer, ZoneData};
 use ggegui::egui::{Id, LayerId, Order};
 use ggez::{
     event::MouseButton, input::keyboard::{KeyCode, KeyMods}, Context, GameResult
@@ -11,7 +11,7 @@ use ggez::{
 use renet::DefaultChannel;
 
 use crate::{
-    data::{Animation, Interpolation, Map, Player, Zone}, network::Network, scene::Transition, GameEvent, GameState
+    data::{draw_zone, Animation, Interpolation, Map, Player, Zone}, network::Network, scene::Transition, GameEvent, GameState
     // state::{UpdateContext, DrawContext, SetupContext, EventContext},
     // utils::{RectExt, rect, draw_text_shadow}
 };
@@ -204,15 +204,7 @@ impl GameScene {
 
     fn update_players(&mut self, ctx: &mut Context) {
         let player_boxes: Vec<_> = self.players.iter()
-            .map(|(cid, player)| {
-                (
-                    *cid,
-                    Box2D::from_origin_and_size(
-                        player.position + Vector2D::new(0.0, SPRITE_SIZE / 2.0),
-                        Size2D::new(SPRITE_SIZE, SPRITE_SIZE / 2.0)
-                    ),
-                )
-            })
+            .map(|(cid, player)| (*cid, Player::collision_box(player.position)))
             .collect();
     
         let time = ctx.time.time_since_start().as_secs_f32();
@@ -220,47 +212,39 @@ impl GameScene {
 
         let entity = self.local_player;
         if let Some(player) = self.players.get_mut(&entity) {
-            const FRICTION: f32 = 0.0; // % loss per second
+            let velocity = (player.velocity + player.acceleration ).clamp_length(0.0, player.max_speed);
+            let friction_force = velocity.try_normalize().unwrap_or_default() * player.test_friction * dt;
 
-            let force = player.velocity.normalize() * 0.9 * -RUN_SPEED; // friction is a force, not an impulse
-            let acceleration = player.acceleration + force;
+            player.velocity = if friction_force.square_length() <= velocity.square_length() {
+                velocity - friction_force
+            } else {
+                Vector2D::zero()
+            };
 
-            let velocity = (player.velocity + acceleration * dt).clamp_length(0.0, RUN_SPEED);
-            
-            if velocity.square_length() > 0.0 {
-                player.velocity = velocity;
-
+            if player.velocity.square_length() >= f32::EPSILON * f32::EPSILON {
                 let offset = player.velocity * dt;
                 let new_position = player.position + offset;
 
-                // only block on the bottom half of the sprite, feels better
-                let sprite_box = Box2D::from_origin_and_size( 
-                    new_position + Vector2D::new(0.0, SPRITE_SIZE / 2.0),
-                    Size2D::new(SPRITE_SIZE, SPRITE_SIZE / 2.0),
-                );
+                let sprite_box = Player::collision_box(new_position);
+                let map_box = Box2D::from_size(self.map.world_size());
 
-                let map_size = self.map.world_size();
-                let map_rect = Rect::from_size(map_size);
-
-                let mut valid = map_rect.contains_rect(&sprite_box.to_rect());
+                let mut valid = map_box.contains_box(&sprite_box);
 
                 if !player.flags.in_map_editor {
-                    valid &= !player_boxes
-                        .iter()
+                    valid &= !player_boxes.iter()
                         .filter(|(id, _b)| *id != entity)
-                        .any(|(_, b)| b.contains_box(&sprite_box));
+                        .any(|(_, b)| b.intersects(&sprite_box));
 
-                    valid &= !self
-                        .map
-                        .zones
-                        .iter()
+                    valid &= !self.map.zones.iter()
                         .filter(|zone| zone.data == ZoneData::Blocked)
-                        .any(|zone| zone.position.contains_box(&sprite_box));
+                        .any(|zone| zone.position.intersects(&sprite_box));
                 }
 
                 if valid {
                     player.position = new_position;
                 }
+            } else {
+                player.velocity = Vector2D::zero();
             }
         }
 
@@ -393,32 +377,57 @@ impl GameScene {
         let keyboard = &ctx.keyboard;
 
         if let Some(player) = self.players.get_mut(&self.local_player) {
-            let mut new_acceleration = player.acceleration;
-            let speed = if keyboard.active_mods().contains(KeyMods::SHIFT) {
+            let mut direction = Vector2D::zero();
+            if keyboard.is_key_pressed(KeyCode::Up) || keyboard.is_key_pressed(KeyCode::W) {
+                direction.y = -1.0;
+            } else if keyboard.is_key_pressed(KeyCode::Down) || keyboard.is_key_pressed(KeyCode::S) {
+                direction.y = 1.0;
+            } else {
+                direction.y = 0.0;
+            }
+
+            if keyboard.is_key_pressed(KeyCode::Left) || keyboard.is_key_pressed(KeyCode::A) {
+                direction.x = -1.0;
+            } else if keyboard.is_key_pressed(KeyCode::Right) || keyboard.is_key_pressed(KeyCode::D) {
+                direction.x = 1.0;
+            } else {
+                direction.x = 0.0;
+            }
+
+            player.acceleration = direction.try_normalize().unwrap_or(Vector2D::zero()) * player.test_acceleration;
+            player.max_speed = if keyboard.active_mods().contains(KeyMods::SHIFT) {
                 WALK_SPEED
             } else {
                 RUN_SPEED
             };
 
-            if keyboard.is_key_pressed(KeyCode::Up) || keyboard.is_key_pressed(KeyCode::W) {
-                new_acceleration.y = -1.0;
-            } else if keyboard.is_key_pressed(KeyCode::Down) || keyboard.is_key_pressed(KeyCode::S) {
-                new_acceleration.y = 1.0;
-            } else {
-                new_acceleration.y = 0.0;
-            }
-
-            if keyboard.is_key_pressed(KeyCode::Left) || keyboard.is_key_pressed(KeyCode::A) {
-                new_acceleration.x = -1.0;
-            } else if keyboard.is_key_pressed(KeyCode::Right) || keyboard.is_key_pressed(KeyCode::D) {
-                new_acceleration.x = 1.0;
-            } else {
-                new_acceleration.x = 0.0;
-            }
-
-            player.acceleration = new_acceleration.normalize() * speed;
+            // todo
             player.direction = Direction::from_velocity(player.acceleration).unwrap_or(player.direction);
             player.update_animation(time);
+
+            if keyboard.is_key_just_pressed(KeyCode::Y) {
+                player.test_acceleration += 1.0;
+            } else if keyboard.is_key_just_pressed(KeyCode::H) {
+                player.test_acceleration -= 1.0;
+            }
+
+            if keyboard.is_key_just_pressed(KeyCode::U) {
+                player.test_friction += 1.0;
+            } else if keyboard.is_key_just_pressed(KeyCode::J) {
+                player.test_friction -= 1.0;
+            }
+
+            if keyboard.is_key_just_pressed(KeyCode::I) {
+                player.test_acceleration *= 2.0;
+            } else if keyboard.is_key_just_pressed(KeyCode::K) {
+                player.test_acceleration /= 2.0;
+            }
+
+            if keyboard.is_key_just_pressed(KeyCode::O) {
+                player.test_friction *= 2.0;
+            } else if keyboard.is_key_just_pressed(KeyCode::L) {
+                player.test_friction /= 2.0;
+            }
 
             // let movement = if keyboard.is_key_pressed(KeyCode::Up) || keyboard.is_key_pressed(KeyCode::W) {
             //     Some(Direction::North)
@@ -466,6 +475,7 @@ impl GameScene {
 
     fn update_pointer(&mut self, ctx: &mut Context) {
         let mouse_position = self.screen_to_world(ctx, self.mouse_screen(ctx));
+        let mouse_valid = Box2D::from_size(self.map.world_size()).contains(mouse_position);
 
         // Map editor
         if self.ui.map_editor_shown {
@@ -480,25 +490,27 @@ impl GameScene {
                     };
 
                     if let Some(mouse_button) = mouse_button {
-                        let tile_position = (mouse_position / TILE_SIZE).floor().to_u32().cast_unit();
-                        let current_tile = (mouse_button, tile_position);
+                        if mouse_valid {
+                            let tile_position = (mouse_position / TILE_SIZE).floor().to_u32().cast_unit();
+                            let current_tile = (mouse_button, tile_position);
 
-                        if self.ui.last_tile != Some(current_tile) {
-                            match mouse_button {
-                                MouseButton::Left => {
-                                    let layer = self.ui.map_editor.layer();
-                                    let tile = self.ui.map_editor.tile();
-                                    self.map.set_tile(layer, tile_position, tile);
-                                }
-                                MouseButton::Right => {
-                                    let layer = self.ui.map_editor.layer();
-                                    self.map.clear_tile(layer, tile_position);
-                                }
-                                _ => (),
-                            };
+                            if self.ui.last_tile != Some(current_tile) {
+                                match mouse_button {
+                                    MouseButton::Left => {
+                                        let layer = self.ui.map_editor.layer();
+                                        let tile = self.ui.map_editor.tile();
+                                        self.map.set_tile(layer, tile_position, tile);
+                                    }
+                                    MouseButton::Right => {
+                                        let layer = self.ui.map_editor.layer();
+                                        self.map.clear_tile(layer, tile_position);
+                                    }
+                                    _ => (),
+                                };
 
-                            self.map.update_autotile_cache();
-                            self.ui.last_tile = Some(current_tile);
+                                self.map.update_autotile_cache();
+                                self.ui.last_tile = Some(current_tile);
+                            }                                
                         }
                     }
                 }
@@ -513,21 +525,21 @@ impl GameScene {
                     }
 
                     let mouse_down = ctx.mouse.button_pressed(MouseButton::Left);
-                    if self.ui.drag_start.is_some() && !mouse_down {
-                        let drag_start = self.ui.drag_start.take().unwrap();
-                        let start = drag_start.min(mouse_position);
-                        let size = (drag_start.max(mouse_position) - start)
-                            .max(Vector2D::splat(6.0)) // assume that 6x6 is the smallest you can make.
-                            .to_size(); 
+                    if let Some((drag_start, drag_size)) = self.ui.drag_zone.as_mut() {
+                        if mouse_down {
+                            let size = (*drag_start - mouse_position)
+                                .max(Vector2D::splat(6.0)) // assume that 6x6 is the smallest you can make.
+                                .to_size(); 
 
-                        let drag_box = Box2D::from_origin_and_size(start, size);
-
-                        self.map.zones.push(Zone {
-                            position: drag_box,
-                            data: self.ui.map_editor.zone_data().clone(),
-                        });
-                    } else if self.ui.drag_start.is_none() && mouse_down {
-                        self.ui.drag_start = Some(mouse_position);
+                            *drag_size = size;
+                        } else {
+                            self.map.zones.push(Zone {
+                                position: self.ui.drag_box2d().unwrap(),
+                                data: self.ui.map_editor.zone_data().clone(),
+                            });
+                        }
+                    } else if mouse_down {
+                        self.ui.drag_zone = Some((mouse_position, Size2D::splat(6.0)));
                     };
                 }
                 Tab::Settings | Tab::Tools => (),
@@ -575,7 +587,7 @@ impl GameScene {
     pub fn draw(&mut self, ctx: &mut Context, state: &mut GameState) -> GameResult {
         use ggez::graphics::*;
 
-        let (screen_width, screen_height) = ctx.gfx.drawable_size();
+        let screen_size = self.screen_size(ctx);
         let mut canvas = Canvas::from_frame(ctx, Color::BLACK);
 
         let camera_rect = ggez::graphics::Rect::new(self.camera.origin.x, self.camera.origin.y, self.camera.size.width, self.camera.size.height);
@@ -598,8 +610,16 @@ impl GameScene {
         // Draw 2nd half of map.
         self.map.draw_layers(ctx, &mut canvas, &[MapLayer::Fringe, MapLayer::Fringe2], &mut state.assets, time);
 
+        if self.ui.map_editor_shown {
+            self.map.draw_zones(ctx, &mut canvas)?;
+
+            if let Some(drag_box) = self.ui.drag_box2d() {
+                draw_zone(ctx, &mut canvas, drag_box, self.ui.map_editor.zone_data())?;
+            }
+        }
+
         // UI drawing starts here
-        canvas.set_screen_coordinates(Rect::new(0.0, 0.0, screen_width, screen_height));
+        canvas.set_screen_coordinates(Rect::new(0.0, 0.0, screen_size.width, screen_size.height));
         canvas.draw(&state.gui, DrawParam::default());
         
         // FPS
@@ -611,11 +631,13 @@ impl GameScene {
         );
 
         if let Some(player) = self.players.get_mut(&self.local_player) {
-            let text = Text::new(format!("Velocity: {:.02?}", player.velocity));
+            let text = Text::new(format!(
+                "Velocity: {:.02?}  FRICTION: {:0.2}\nAcceleration: {:.02?}  ACCELERATION: {:0.2}\nPosition: {:0.2?}  Max Speed: {:.02}",
+                player.velocity, player.test_friction,
+                player.acceleration, player.test_acceleration,
+                player.position, player.max_speed
+            ));
             canvas.draw(&text, DrawParam::from([0.0, 14.0]).color(Color::WHITE));
-
-            let text = Text::new(format!("Acceleration: {:.02?}", player.acceleration));
-            canvas.draw(&text, DrawParam::from([0.0, 28.0]).color(Color::WHITE));
         }
 
         canvas.finish(ctx)
@@ -772,10 +794,21 @@ struct UiState {
     block_keyboard: bool,
     block_pointer: bool,
     chat_window: ChatWindow,
-    drag_start: Option<Point2D>,
+    drag_zone: Option<(Point2D, Size2D)>,
     last_tile: Option<(MouseButton, map::Point2D)>,
     map_editor_shown: bool,
     map_editor: MapEditor,
+}
+
+impl UiState {
+    pub fn drag_box2d(&self) -> Option<Box2D> {
+        self.drag_zone.map(|(drag_start, drag_size)| {
+            let min = Point2D::min(drag_start, drag_start + drag_size);
+            let max = Point2D::max(drag_start, drag_start + drag_size);
+
+            Box2D::new(min, max)
+        })
+    }
 }
 
 impl Default for UiState {
@@ -784,7 +817,7 @@ impl Default for UiState {
             block_keyboard: false,
             block_pointer: false,
             chat_window: ChatWindow::new(),
-            drag_start: Option::default(),
+            drag_zone: None,
             last_tile: None,
             map_editor_shown: false,
             map_editor: MapEditor::new(),

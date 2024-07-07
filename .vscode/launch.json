@@ -7,12 +7,35 @@
         {
             "type": "lldb",
             "request": "launch",
-            "name": "Debug client",
+            "name": "Debug unit tests in library 'onyx'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--lib",
+                    "--package=onyx"
+                ],
+                "filter": {
+                    "name": "onyx",
+                    "kind": "lib"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}",
+            "env": {
+                "RUNTIME_PATH": "${workspaceFolder}/runtime",
+                "RUST_BACKTRACE": "1"
+            }
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug executable 'client'",
             "cargo": {
                 "args": [
                     "build",
                     "--bin=client",
-                    "--package=client"
+                    "--package=onyx"
                 ],
                 "filter": {
                     "name": "client",
@@ -20,17 +43,44 @@
                 }
             },
             "args": [],
-            "cwd": "${workspaceFolder}/runtime/client"
+            "cwd": "${workspaceFolder}",
+            "env": {
+                "RUNTIME_PATH": "${workspaceFolder}/runtime",
+                "RUST_BACKTRACE": "1"
+            }
         },
         {
             "type": "lldb",
             "request": "launch",
-            "name": "Debug server",
+            "name": "Debug unit tests in executable 'client'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--bin=client",
+                    "--package=onyx"
+                ],
+                "filter": {
+                    "name": "client",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}",
+            "env": {
+                "RUNTIME_PATH": "${workspaceFolder}/runtime",
+                "RUST_BACKTRACE": "1"
+            }
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug executable 'server'",
             "cargo": {
                 "args": [
                     "build",
                     "--bin=server",
-                    "--package=server"
+                    "--package=onyx"
                 ],
                 "filter": {
                     "name": "server",
@@ -38,26 +88,34 @@
                 }
             },
             "args": [],
-            "cwd": "${workspaceFolder}/runtime/server"
+            "cwd": "${workspaceFolder}",
+            "env": {
+                "RUNTIME_PATH": "${workspaceFolder}/runtime",
+                "RUST_BACKTRACE": "1"
+            }
         },
         {
             "type": "lldb",
             "request": "launch",
-            "name": "Debug unit tests in library 'common'",
+            "name": "Debug unit tests in executable 'server'",
             "cargo": {
                 "args": [
                     "test",
                     "--no-run",
-                    "--lib",
-                    "--package=common"
+                    "--bin=server",
+                    "--package=onyx"
                 ],
                 "filter": {
-                    "name": "common",
-                    "kind": "lib"
+                    "name": "server",
+                    "kind": "bin"
                 }
             },
             "args": [],
-            "cwd": "${workspaceFolder}"
+            "cwd": "${workspaceFolder}",
+            "env": {
+                "RUNTIME_PATH": "${workspaceFolder}/runtime",
+                "RUST_BACKTRACE": "1"
+            }
         }
     ]
 }
