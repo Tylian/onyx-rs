@@ -3,6 +3,7 @@ use std::net::SocketAddr;
 use message_io::{events::EventReceiver, network::{Endpoint, Transport}, node::{self, NodeHandler, NodeTask, StoredNodeEvent}};
 use onyx::network::client::Packet;
 use thiserror::Error;
+
 pub struct Network {
     pub handler: NodeHandler<()>,
     pub receiver: EventReceiver<StoredNodeEvent<()>>,

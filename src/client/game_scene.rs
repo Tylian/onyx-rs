@@ -17,17 +17,10 @@ use crate::{
     // utils::{RectExt, rect, draw_text_shadow}
 };
 
-use self::{
-    // camera::Camera,
-    ui::{ChatWindow, MapEditor, Wants, Tab}
-};
-
-// mod camera;
-mod ui;
+use crate::ui::{ChatWindow, MapEditor, Wants, Tab};
 
 pub struct GameScene {
     // assets: AssetCache,
-    // camera: Camera,
     camera: Rect,
     map: Map,
     network: Network,
@@ -54,7 +47,7 @@ impl GameScene {
         Self {
             network,
             map: Map::new(MapId::default(), size2(20, 15)),
-            camera: Rect::new(Point2D::new(0.0, 0.0), screen_size),
+            camera: Rect::from_size(screen_size),
 
             local_player,
             players: HashMap::new(),
@@ -68,7 +61,6 @@ impl GameScene {
             test_friction: FRICTION,
 
             ui: UiState::default(),
-
         }
     }
 
@@ -98,16 +90,6 @@ impl GameScene {
                 StoredNetEvent::Disconnected(_) => panic!("disconnected"),
             }
         }
-
-        // const UPDATE_DELAY: f32 = 1.0 / 20.0; // update time in hz
-        // if ctx.time.time_since_start().as_secs_f32() >= self.last_position_send + UPDATE_DELAY {
-        //     if let Some(player) = self.players.get(&self.local_player) {
-        //         self.network.send(&Packet::Move {
-        //             position: player.position,
-        //             velocity: player.velocity,
-        //         });
-        //     }
-        // }
     }
 
     fn process_chat_message(&mut self, channel: ChatChannel, text: String) {
@@ -643,111 +625,6 @@ impl GameScene {
     pub fn mouse_screen(&self, ctx: &Context) -> screen::Point2D {
         screen::Point2D::from(ctx.mouse.position())
     }
-
-    // fn draw(&mut self, ctx: &mut DrawContext) {
-    //     self.assets.tick(ctx.gfx);
-
-    //     if !self.assets.is_loaded() {
-    //         let mut draw = ctx.gfx.create_draw();
-    //         draw.clear(Color::BLACK);
-
-    //         draw.text(&self.assets.debug_font, "Loading...")
-    //             .color(Color::WHITE);
-
-    //         ctx.gfx.render(&draw);
-    //         return;
-    //     }
-
-    //     let time = ctx.app.timer.time_since_init();
-    //     let (screen_width, screen_height) = ctx.app.window().size();
-    //     let mouse_position = ctx.app.mouse.position();
-
-    //     let mut draw = ctx.gfx.create_draw();
-    //     draw.clear(Color::BLACK);
-
-    //     // Set up camera position
-    //     draw.transform().push(self.camera.matrix());
-
-    //     // Render map border
-    //     let (map_width, map_height) = self.map.pixel_size();
-    //     draw.rect((-3.0, -3.0), (map_width + 6.0, map_height + 6.0))
-    //         .color(Color::GRAY)
-    //         .stroke(6.0);
-
-    //     self.map.draw_layers(&mut draw, &[MapLayer::Ground, MapLayer::Mask, MapLayer::Mask2], &mut self.assets, time);
-
-    //     let mut players = self.players.values().collect::<Vec<_>>();
-    //     players.sort_by(|a, b| a.position.y.partial_cmp(&b.position.y).unwrap());
-
-    //     for player in players {
-    //         player.draw(&mut draw, time, &mut self.assets);
-    //     }
-
-    //     self.map.draw_layers(&mut draw, &[MapLayer::Fringe, MapLayer::Fringe2], &mut self.assets, time);
-
-    //     if self.ui.map_editor_shown {
-    //         self.map.draw_zones(&mut draw, &mut self.assets);
-    //         if let Some(drag_start) = self.ui.drag_start {
-    //             let mouse = self.camera.screen_to_world(mouse_position.into());
-    //             let start = drag_start.min(mouse);
-    //             let end = drag_start.max(mouse);
-    //             let size = end - start;
-
-    //             let drag_rect = rect(start.x, start.y, size.x, size.y);
-    //             draw_zone(&mut draw, drag_rect, self.ui.map_editor.zone_data(), &mut self.assets);
-    //         }
-    //     }
-
-    //     draw.transform().pop();
-
-    //     draw_text_shadow(
-    //         &mut draw,
-    //         &self.assets.font.lock().unwrap(),
-    //         &self.map.settings.name,
-    //         vec2(screen_width as f32 / 2.0, 2.0),
-    //         |text| {
-    //             text.color(Color::WHITE)
-    //                 .h_align_center();
-    //         }
-    //     );
-
-    //     draw.text(&self.assets.debug_font, &format!("{:.02}", ctx.app.timer.fps()))
-    //         .position(0., 0.)
-    //         .size(16.)
-    //         .color(Color::WHITE);
-
-    //     ctx.gfx.render(&draw);
-
-    //     let screen_size = ivec2(screen_width, screen_height);
-    //     let mouse_world_position = self.camera.screen_to_world(mouse_position.into());
-
-    //     let output = ctx.plugins.egui(|ui_ctx| {
-    //         self.draw_ui(ui_ctx, screen_size, mouse_world_position);
-    //         self.ui.block_keyboard = ui_ctx.wants_keyboard_input();
-    //         self.ui.block_pointer = ui_ctx.wants_pointer_input();
-    //     });
-
-    //     ctx.gfx.render(&output);
-    // }
-
-    // fn update(&mut self, ctx: &mut UpdateContext) {
-    //     self.update_network(ctx);
-
-    //     self.update_players(ctx);
-
-    //     self.update_input(ctx);
-    //     self.update_camera(ctx);
-
-    //     let size = ctx.app.window().size();
-    //     self.camera.update_matrix(vec2(size.0 as f32, size.1 as f32));
-    // }
-
-    // fn event(&mut self, ctx: &mut EventContext) {
-    //     if ctx.event == Event::Exit {
-    //         log::info!("Goodbye!");
-    //         self.network.stop();
-    //     }
-    // }
 }
 
 struct UiState {

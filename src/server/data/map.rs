@@ -90,8 +90,6 @@ impl Map {
 
     pub fn valid(&self, pos: Point2D) -> bool {
         Box2D::from_size(self.size).contains(pos)
-
-        // pos.x >= 0 && pos.x < self.width as u32 && pos.y >= 0 && pos.y < self.height as u32
     }
 }
 

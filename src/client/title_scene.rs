@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use ggegui::{egui, GuiContext};
 
 use crate::{
-    game::GameScene, network::Network, scene::Transition, GameEvent, GameState
+    game_scene::GameScene, network::Network, scene::Transition, GameEvent, GameState
 };
 
 pub struct TitleScene {
@@ -199,11 +199,6 @@ impl TitleScene {
 			DrawParam::default().dest(glam::Vec2::ZERO),
 		);
         canvas.finish(ctx)
-        
-        // let mut output = ctx.plugins.egui(|egui_ctx| self.ui(egui_ctx));
-        // output.clear_color(Color::BLACK);
-        
-        // ctx.gfx.render(&output);
     }
 
     pub fn update(&mut self, ctx: &mut Context, state: &mut GameState) -> GameResult<Transition> {
@@ -269,58 +264,6 @@ impl TitleScene {
             // owo *gently places network back*
             self.network.replace(network);
         }
-        
-        // if let Some(event) = network.try_receive() {
-        //     use common::network::server::Packet;
-
-        //     match event.network() {
-        //         StoredNetEvent::Connected(_, ok) => {
-        //             if ok {
-        //                 self.loading = false;
-        //                 self.error = None;
-        //             } else {
-        //                 self.error = Some(String::from("could not connect"));
-        //                 self.loading = true;
-        //                 network.stop();
-        //                 self.network.replace(Network::connect(&self.settings.address));
-        //             }
-        //         }
-        //         StoredNetEvent::Accepted(_, _) => unreachable!(),
-        //         StoredNetEvent::Message(_, bytes) => {
-        //             let message = rmp_serde::from_slice(&bytes).unwrap();
-        //             // log::debug!("{message:?}");
-
-        //             match message {
-        //                 Packet::JoinGame(entity) => {
-        //                     let settings = Settings {
-        //                         address: self.settings.address.clone(),
-        //                         username: self.username.clone(),
-        //                         password: self.save_password.then_some(self.password.clone()),
-        //                     };
-
-        //                     if let Err(e) = settings.save() {
-        //                         println!("Couldn't write settings, just fyi: {:?}", e);
-        //                     }
-
-        //                     let network = self.network.take().unwrap();
-        //                     let next_scene = GameScene::new(entity, network, ctx);
-        //                     return Ok(SceneTransition::switch(next_scene));
-        //                 }
-        //                 Packet::FailedJoin(reason) => {
-        //                     self.error = Some(reason.to_string());
-        //                     self.loading = false;
-        //                 }
-        //                 _ => unreachable!(),
-        //             }
-        //         }
-        //         StoredNetEvent::Disconnected(_) => {
-        //             self.error = Some(String::from("disconnected"));
-        //             self.loading = true;
-        //             network.stop();
-        //             self.network.replace(Network::connect(&self.settings.address));
-        //         }
-        //     }
-        // }
 
         Ok(Transition::None)
     }

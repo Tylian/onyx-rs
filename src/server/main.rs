@@ -116,40 +116,6 @@ impl GameServer {
     }
 
     fn update_network(&mut self) {
-        // self.network.server.update(self.dt);
-        // self.network.transport.update(self.dt, &mut self.network.server).unwrap();
-
-        // while let Some(event) = self.network.server.get_event() {
-        //     match event {
-        //         ServerEvent::ClientConnected { endpoint } => {
-        //             self.network.endpoints.insert(endpoint);
-        //             log::info!(
-        //                 "Client ({}) connected (total clients: {})",
-        //                 endpoint,
-        //                 self.network.endpoints.len()
-        //             );
-        //         }
-        //         ServerEvent::ClientDisconnected { endpoint, reason } => {
-        //             self.network.endpoints.remove(&endpoint);
-        //             self.handle_disconnect(endpoint, reason.to_string());
-        //         }
-        //     }
-        // }
-
-        // for endpoint in self.network.server.clients_id() {
-        //     while let Some(bytes) = self.network.server.receive_message(endpoint, DefaultChannel::ReliableUnordered) {
-        //         if let Ok(message) = rmp_serde::from_slice(&bytes) {
-        //             if let Err(e) = self.handle_message(endpoint, message) {
-        //                 self.network.server.disconnect(endpoint);
-        //                 log::warn!(
-        //                     "Disconnecting client ({}), message handler returned an error: {e}",
-        //                     endpoint,
-        //                 );
-        //             }
-        //         }
-        //     }
-        // }
-
         while let Some(event) = self.network.receiver.try_receive() {
             match event.network() {
                 StoredNetEvent::Connected(_, _) => unreachable!(),
@@ -331,35 +297,6 @@ impl GameServer {
             }
             ClientPacket::Input(input) => {
                 self.players.get_mut(&entity).unwrap().inputs.push(input);
-
-                // let map_id = self.players[&entity].map;
-                // let map = &self.maps[&map_id];
-
-                // let valid = check_collision_with(
-                //     position,
-                //     map.zones.iter().filter(|zone| zone.data == ZoneData::Blocked),
-                //     |zone| Box2D::from_origin_and_size(zone.position, zone.size),
-                // )
-                // .is_none();
-
-                // if valid {
-                //     let player = self.players.get_mut(&entity).unwrap();
-
-                //     player.position = position;
-                //     player.velocity = velocity;
-
-                //     // let packet = Packet::PlayerMove {
-                //     //     entity,
-                //     //     position,
-                //     //     direction,
-                //     //     velocity,
-                //     // };
-
-                //     // self.send_map_except(map_id, entity, &packet);
-                // } else {
-                //     // warping them to the default will just update them with the server truth
-                //     self.warp_player(entity, map_id, WarpParams::default());
-                // }
             }
             ClientPacket::Warp(map_id, position) => {
                 // note: the requested map possibly doesn't exist
@@ -535,7 +472,7 @@ impl GameServer {
         // Send welcome message
         self.network.send(
             entity,
-            &Packet::ChatLog(ChatChannel::Server, "Welcome to Game™!".to_owned()),
+            &Packet::ChatLog(ChatChannel::Server, "Welcome to Onyx™!".to_owned()),
         );
 
         // Send join message
@@ -672,129 +609,6 @@ impl GameServer {
         for state in states {
             self.apply_state(state);
         }
-
-        // let dt = self.dt;
-
-        
-        // let mut position_updates = Vec::new();
-
-        // // let sprite_size = Size2D::new(SPRITE_SIZE as f32, SPRITE_SIZE as f32 / 2.0);
-        // // let sprite_offset = Vector2D::new(0.0, SPRITE_SIZE as f32 / 2.0);
-
-        // // let player_boxes = self
-        // //     .players
-        // //     .iter()
-        // //     .map(|(&entity, player)| {
-        // //         (
-        // //             entity,
-        // //             Box2D::from_origin_and_size(player.position + sprite_offset, sprite_size),
-        // //         )
-        // //     })
-        // //     .collect::<Vec<_>>();
-
-        // for (&entity, player) in &mut self.players {
-        //     let map = &self.maps[&player.map];
-        // //     if let Some(velocity) = player.velocity {
-        // //         let offset = velocity * dt.as_secs_f32();
-        // //         let new_position = player.position + offset;
-        // //         let mut valid = true;
-
-        // //         // map bounds
-        // //         if !player.flags.in_map_editor {
-        // //             // map warps, lots of copy paste code lol
-        // //             if let Some((direction, new_position)) = check_edge_warp(map, new_position) {
-        // //                 let map_id = match direction {
-        // //                     Direction::North => map.settings.warps.north,
-        // //                     Direction::South => map.settings.warps.south,
-        // //                     Direction::East => map.settings.warps.east,
-        // //                     Direction::West => map.settings.warps.west,
-        // //                 };
-
-        // //                 if let Some(map_id) = map_id {
-        // //                     to_warp.push((
-        // //                         entity,
-        // //                         map_id,
-        // //                         WarpParams {
-        // //                             position: Some(new_position),
-        // //                             ..Default::default()
-        // //                         },
-        // //                     ));
-        // //                 }
-
-        // //                 valid = false;
-        // //             }
-        // //         }
-
-        // //         if !player.flags.in_map_editor {
-        // //             // block zones
-        // //             valid &= check_collision_with(
-        // //                 player.position,
-        // //                 map.zones.iter().filter(|zone| zone.data == ZoneData::Blocked),
-        // //                 |zone| Box2D::from_origin_and_size(zone.position.into(), zone.size.into()),
-        // //             )
-        // //             .is_none();
-
-        // //             valid &= check_collision_with(
-        // //                 player.position,
-        // //                 player_boxes.iter().filter(|(id, _box2d)| *id != entity),
-        // //                 |(_id, box2d)| *box2d,
-        // //             )
-        // //             .is_none();
-        // //         }
-
-        // //         if valid {
-        // //             player.position = new_position;
-        // //         }
-        // //     }
-
-        //     if !player.flags.in_map_editor {
-        //         let warp = check_collision_with(
-        //             player.position,
-        //             map.zones
-        //                 .iter()
-        //                 .filter(|zone| matches!(zone.data, ZoneData::Warp(_, _, _))),
-        //             |zone| Box2D::from_origin_and_size(zone.position, zone.size),
-        //         );
-
-        //         if let Some(Zone {
-        //             data: ZoneData::Warp(map_id, position, direction),
-        //             ..
-        //         }) = warp {
-        //             to_warp.push((
-        //                 entity,
-        //                 *map_id,
-        //                 WarpParams {
-        //                     position: Some(*position),
-        //                     direction: *direction,
-        //                     ..Default::default()
-        //                 },
-        //             ));
-        //         }
-        //     }
-
-        //      // TODO: Check for dirty
-        //      const UPDATE_RATE: f32 = 1.0 / 20.0;
-        //      if self.time_since_start.as_secs_f32() >= player.last_movement_update + UPDATE_RATE {
-        //          let packet = Packet::PlayerMove {
-        //              entity,
-        //              position: player.position,
-        //              velocity: player.velocity,
-        //          };
-     
-        //          position_updates.push((player.map, entity, packet));
-        //      }
-        // }
-
-        // // TODO Map-warp ordering?
-        // for (map, entity, packet) in position_updates {
-        //     let entities = self.entities_on_map_except(map, entity);
-        //     self.network.send_list(&entities, &packet);
-        // }
-
-        // for (entity, map_id, params) in to_warp {
-        //     self.validate_map(map_id);
-        //     self.warp_player(entity, map_id, params);
-        // }
     }
 
     // Convenience function to validate that a map exists by it's name, and then return it's hash
@@ -805,7 +619,7 @@ impl GameServer {
     }
 
     pub fn maintain(&mut self) {
-        // self.network.transport.send_packets(&mut self.network.server);
+        // noop (yet!)
     }
 
     fn next_entity(&mut self) -> Entity {
@@ -827,9 +641,6 @@ impl GameServer {
             .map(|(entity, _player)| *entity)
     }
 }
-
-/// Network convenience
-
 
 fn check_bounds(position: Point2D, bounds: Box2D) -> Option<Direction> {
     let bounds = bounds.to_rect();

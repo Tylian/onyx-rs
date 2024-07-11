@@ -7,8 +7,6 @@ use message_io::node::{self, NodeHandler, NodeTask, StoredNodeEvent};
 use message_io::network::{Endpoint, Transport};
 use onyx::network::{server::Packet, Entity};
 use thiserror::Error;
-// use renet::{Bytes, Endpoint, ConnectionConfig, DefaultChannel, RenetServer};
-// use renet::transport::{NetcodeServerTransport, ServerAuthentication, ServerConfig};
 
 use crate::data::Config;
 
@@ -46,40 +44,7 @@ impl Network {
             peer_map: BiMap::new(),
             endpoints: HashSet::new(),
         })
-
-        // let server = RenetServer::new(ConnectionConfig::default());
-
-        // // Setup transport layer
-        // 
-        // let socket: UdpSocket = UdpSocket::bind(server_addr).unwrap();
-        // let server_config = ServerConfig {
-        //     current_time: SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap(),
-        //     max_clients: 64,
-        //     protocol_id: 0,
-        //     public_addresses: vec![server_addr],
-        //     authentication: ServerAuthentication::Unsecure
-        // };
-
-        // let transport = NetcodeServerTransport::new(server_config, socket).unwrap();
-
-        // Self {
-        //     server,
-        //     transport,
-        //     peer_map: BiMap::new(),
-        //     endpoints: HashSet::new(),
-        // }
     }
-
-    // pub fn network(&self) -> &NetworkController {
-    //     self.handler.as_ref().unwrap().network()
-    // }
-
-    // #[inline]
-    // fn send_bytes(&mut self, entity: Entity, bytes: Bytes) {
-    //     if let Some(endpoint) = self.peer_map.get_by_left(&entity) {
-    //         self.server.send_message(*endpoint, DefaultChannel::ReliableUnordered, bytes);
-    //     }
-    // }
 
     pub fn stop(&self) {
         self.handler.stop();

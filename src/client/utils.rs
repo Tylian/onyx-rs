@@ -1,6 +1,6 @@
-// use notan::{draw::*, math::*, prelude::Color};
 use ggez::{context::Has, glam::Vec2, graphics::{Canvas, Color, DrawParam, Drawable, GraphicsContext, Rect, Text, Transform}};
 
+/// Shortcut that is equivalent to if !$cond { return Err($err); }
 #[macro_export]
 macro_rules! ensure {
     ($cond:expr, $err:expr) => {
@@ -19,26 +19,6 @@ pub fn ping_pong(t: f32, frames: u32) -> u32 {
         frame
     }
 }
-
-// // idk what to do with this
-// pub fn draw_text_shadow<'a, F>(draw: &mut Draw, font: &'a Font, text: &'a str, position: Vec2, builder: F)
-//     where F: Fn(&mut DrawBuilder<TextSection<'a>>)
-// {
-//     // builder(draw.text(font, text));
-//     // draw.text(font, text);
-//     {
-//         let shadow_position = position + glam::vec2(1.0, 1.0);
-//         let mut text_section = draw.text(font, text);
-//         builder(&mut text_section);
-
-//         text_section.position(shadow_position.x, shadow_position.y)
-//         .color(Color::from_rgba(0.0, 0.0, 0.0, 0.5));
-//     }
-
-//     let mut text_section = draw.text(font, text);
-//     builder(&mut text_section);
-//     text_section.position(position.x, position.y);
-// }
 
 pub struct OutlinedText<'a> {
     inner: &'a Text,
@@ -101,84 +81,3 @@ impl<'a> Drawable for OutlinedText<'a> {
         ))
     }
 }
-
-// pub fn draw_text_outline<FP, FT>(canvas: &mut Canvas, text_builder: FT, param_builder: FP)
-//     where FT: FnOnce() -> Text,
-//           FP: Fn(Vec2, bool) -> DrawParam
-// {
-//     let outlines = &[
-//         Vec2::new(1.0, 0.0),
-//         Vec2::new(-1.0, 0.0),
-//         Vec2::new(0.0, 1.0),
-//         Vec2::new(0.0, -1.0),
-//         Vec2::new(-1.0, -0.0),
-//         Vec2::new(-1.0, 1.0),
-//         Vec2::new(1.0, -1.0),
-//         Vec2::new(1.0, 1.0),
-//     ];
-
-//     let text = text_builder();
-
-//     for outline in outlines {
-//         canvas.draw(&text, param_builder(*outline, true));
-//     }
-
-//     canvas.draw(&text, param_builder(Vec2::ZERO, false));
-// }
-
-// pub fn rect(x: f32, y: f32, width: f32, height: f32) -> Rect {
-//     Rect {
-//         x, y, width, height
-//     }
-// }
-
-// pub trait RectExt {
-//     fn left(&self) -> f32;
-//     fn right(&self) -> f32;
-//     fn top(&self) -> f32;
-//     fn bottom(&self) -> f32;
-//     fn center(&self) -> Vec2;
-//     fn size(&self) -> Vec2;
-//     fn contains(&self, point: Vec2) -> bool;
-//     fn overlaps(&self, other: &Rect) -> bool;
-// }
-
-// impl RectExt for Rect {
-//     fn left(&self) -> f32 {
-//         self.x
-//     }
-
-//     fn right(&self) -> f32 {
-//         self.x + self.width
-//     }
-
-//     fn top(&self) -> f32 {
-//         self.y
-//     }
-
-//     fn bottom(&self) -> f32 {
-//         self.y + self.height
-//     }
-
-//     fn center(&self) -> Vec2 {
-//         vec2(self.x + self.width * 0.5, self.y + self.height * 0.5)
-//     }
-
-//     fn size(&self) -> Vec2 {
-//         vec2(self.width, self.height)
-//     }
-
-//     fn contains(&self, point: Vec2) -> bool {
-//         point.x >= self.left()
-//             && point.x < self.right()
-//             && point.y < self.bottom()
-//             && point.y >= self.top()
-//     }
-
-//     fn overlaps(&self, other: &Rect) -> bool {
-//         self.left() <= other.right()
-//             && self.right() >= other.left()
-//             && self.top() <= other.bottom()
-//             && self.bottom() >= other.top()
-//     }
-// }

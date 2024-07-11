@@ -1,7 +1,7 @@
 use ggez::GameResult;
 
 use crate::{
-    game::GameScene, title::TitleScene, GameEvent, GameState
+    game_scene::GameScene, title_scene::TitleScene, GameEvent, GameState
 };
 
 //? manual enum dispatch
