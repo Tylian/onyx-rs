@@ -1,7 +1,8 @@
 mod map;
 mod player;
 
-use std::{collections::HashSet, path::PathBuf};
+use std::collections::HashSet;
+use std::path::PathBuf;
 
 use anyhow::Result;
 use onyx::math::units::world::Point2D;
@@ -61,7 +62,7 @@ impl NameCache {
             names: contents.lines().map(ToString::to_string).collect(),
         })
     }
-    
+
     pub fn save(&self) -> Result<()> {
         let contents = self.names.iter().cloned().collect::<Vec<_>>().join("\n");
 

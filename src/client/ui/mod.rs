@@ -4,14 +4,12 @@ mod chat_window;
 mod map_editor;
 
 use ggegui::egui::*;
-
-use onyx::SPRITE_SIZE;
 use load::SizedTexture;
-
-use crate::utils::ping_pong;
+use onyx::SPRITE_SIZE;
 
 pub use self::chat_window::*;
 pub use self::map_editor::*;
+use crate::utils::ping_pong;
 
 // ! A few functions in here are dead code, remove them if need be eventually.
 pub fn dialog<R>(ctx: &Context, add_contents: impl FnOnce(&mut Ui) -> R) -> InnerResponse<R> {
@@ -85,10 +83,7 @@ pub fn sprite_preview(ui: &mut Ui, texture: &TextureHandle, time: f32, sprite: u
     let offset_x = ping_pong(time / animation_speed % 1.0, 3) as f32;
     let offset_y = ((time / (animation_speed * loops)) % 4.0).floor();
 
-    let p = vec2(
-        (sprite_x + offset_x) * SPRITE_SIZE,
-        (sprite_y + offset_y) * SPRITE_SIZE,
-    ) / texture.size_vec2();
+    let p = vec2((sprite_x + offset_x) * SPRITE_SIZE, (sprite_y + offset_y) * SPRITE_SIZE) / texture.size_vec2();
     let size = vec2(SPRITE_SIZE, SPRITE_SIZE) / texture.size_vec2();
     let sprite = Image::from_texture(texture)
         .fit_to_exact_size(vec2(SPRITE_SIZE, SPRITE_SIZE))
@@ -109,18 +104,24 @@ fn auto_complete<T: AsRef<str>>(ui: &mut Ui, popup_id: Id, suggestions: &[T], cu
         ui.memory_mut(|m| m.open_popup(popup_id));
     }
 
-    popup_below_widget(ui, popup_id, &text_edit, PopupCloseBehavior::CloseOnClickOutside, |ui| {
-        ScrollArea::vertical()
-            .max_height(ui.spacing().combo_height)
-            .show(ui, |ui| {
-                for item in filtered {
-                    let item = item.as_ref();
-                    if ui.selectable_label(current == item, item).clicked() {
-                        *current = String::from(item);
+    popup_below_widget(
+        ui,
+        popup_id,
+        &text_edit,
+        PopupCloseBehavior::CloseOnClickOutside,
+        |ui| {
+            ScrollArea::vertical()
+                .max_height(ui.spacing().combo_height)
+                .show(ui, |ui| {
+                    for item in filtered {
+                        let item = item.as_ref();
+                        if ui.selectable_label(current == item, item).clicked() {
+                            *current = String::from(item);
+                        }
                     }
-                }
-            });
-    });
+                });
+        },
+    );
 
     // crappy attempt at fixing a bug lmao
     if text_edit.lost_focus() {

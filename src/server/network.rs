@@ -3,9 +3,10 @@ use std::net::SocketAddr;
 
 use bimap::BiMap;
 use message_io::events::EventReceiver;
-use message_io::node::{self, NodeHandler, NodeTask, StoredNodeEvent};
 use message_io::network::{Endpoint, Transport};
-use onyx::network::{server::Packet, Entity};
+use message_io::node::{self, NodeHandler, NodeTask, StoredNodeEvent};
+use onyx::network::server::Packet;
+use onyx::network::Entity;
 use thiserror::Error;
 
 use crate::data::Config;
@@ -15,7 +16,7 @@ pub struct Network {
     pub receiver: EventReceiver<StoredNodeEvent<()>>,
     pub peer_map: BiMap<Entity, Endpoint>,
     pub endpoints: HashSet<Endpoint>,
-    
+
     #[allow(dead_code)] // RAII
     task: NodeTask,
 }
@@ -23,7 +24,7 @@ pub struct Network {
 #[derive(Clone, Copy, Debug, Error)]
 pub enum NetworkError {
     #[error("could not start listening")]
-    Listen
+    Listen,
 }
 
 impl Network {
@@ -31,7 +32,10 @@ impl Network {
         let (handler, listener) = node::split::<()>();
 
         let server_addr: SocketAddr = config.listen.parse().unwrap();
-        handler.network().listen(Transport::FramedTcp, server_addr).map_err(|_| NetworkError::Listen)?;
+        handler
+            .network()
+            .listen(Transport::FramedTcp, server_addr)
+            .map_err(|_| NetworkError::Listen)?;
 
         log::info!("Listening on {}", server_addr);
 
@@ -84,7 +88,7 @@ impl Network {
             if entity == exclude {
                 continue;
             }
-            
+
             self.handler.network().send(endpoint, &bytes);
         }
     }

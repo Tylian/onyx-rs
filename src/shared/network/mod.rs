@@ -1,4 +1,5 @@
-use std::{collections::HashMap, fmt::Display};
+use std::collections::HashMap;
+use std::fmt::Display;
 
 use euclid::approxeq::ApproxEq;
 use glam::{ivec2, vec2, IVec2, UVec2, Vec2};
@@ -6,7 +7,9 @@ use ndarray::Array2;
 use serde::{Deserialize, Serialize};
 use strum::{EnumCount, EnumIter, IntoEnumIterator};
 
-use crate::{math::units::{map, world::{self, *}}, LERP_DURATION, RUN_SPEED, WALK_SPEED};
+use crate::math::units::map;
+use crate::math::units::world::{self, *};
+use crate::{LERP_DURATION, RUN_SPEED, WALK_SPEED};
 
 pub mod client;
 pub mod server;
@@ -56,7 +59,7 @@ pub enum Direction {
 impl Direction {
     pub fn from_velocity(velocity: Vector2D) -> Option<Self> {
         if velocity.approx_eq(&Vector2D::zero()) {
-            return None
+            return None;
         }
 
         #[allow(clippy::collapsible_else_if)] // visual logic more important
@@ -100,7 +103,6 @@ impl Direction {
             Direction::North => ivec2(0, -1),
         }
     }
-    
 }
 
 impl Display for Direction {
@@ -318,7 +320,7 @@ pub struct State {
     pub velocity: Vector2D,
     pub direction: Direction,
     pub map: MapId,
-    pub max_speed: f32, 
+    pub max_speed: f32,
     pub last_sequence_id: u64,
 }
 

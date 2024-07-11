@@ -1,23 +1,24 @@
 mod data;
 
-use std::{
-    collections::{hash_map::Entry, HashMap}, path::PathBuf, time::{Duration, Instant}
-};
+use std::collections::hash_map::Entry;
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::time::{Duration, Instant};
 
 use anyhow::{bail, Context, Result};
 use base64ct::{Base64, Encoding};
 use data::PlayerData;
-use euclid::size2;
-use message_io::{network::Endpoint, node::StoredNetEvent};
-use onyx::{
-    network::{
-        client::Packet as ClientPacket, server::{FailJoinReason, Packet}, ChatChannel, Direction, Entity, MapId, State, Zone, ZoneData
-    }, FRICTION, SERVER_DELAY, SPRITE_SIZE
-};
-use onyx::math::units::world::*;
 use env_logger::WriteStyle;
+use euclid::size2;
 use log::LevelFilter;
+use message_io::network::Endpoint;
+use message_io::node::StoredNetEvent;
 use network::Network;
+use onyx::math::units::world::*;
+use onyx::network::client::Packet as ClientPacket;
+use onyx::network::server::{FailJoinReason, Packet};
+use onyx::network::{ChatChannel, Direction, Entity, MapId, State, Zone, ZoneData};
+use onyx::{FRICTION, SERVER_DELAY, SPRITE_SIZE};
 use rand::prelude::*;
 use sha2::{Digest, Sha256};
 
@@ -91,10 +92,10 @@ impl GameServer {
             let elapsed = current_time.duration_since(previous_time);
             previous_time = current_time;
             accumulated_time += elapsed;
-    
+
             self.time_since_start = current_time.duration_since(self.start);
             self.dt = elapsed;
-    
+
             while accumulated_time >= timestep {
                 self.update();
                 accumulated_time -= timestep;
@@ -201,11 +202,13 @@ impl GameServer {
                 let mut name_cache = NameCache::load().unwrap();
 
                 if Player::path(&username).exists() {
-                    self.network.send_to(endpoint, &Packet::FailedJoin(FailJoinReason::UsernameTaken));
+                    self.network
+                        .send_to(endpoint, &Packet::FailedJoin(FailJoinReason::UsernameTaken));
                 }
 
                 if name_cache.contains(&name) {
-                    self.network.send_to(endpoint, &Packet::FailedJoin(FailJoinReason::CharacterNameTaken));
+                    self.network
+                        .send_to(endpoint, &Packet::FailedJoin(FailJoinReason::CharacterNameTaken));
                 }
 
                 name_cache.insert(name.clone());
@@ -219,9 +222,9 @@ impl GameServer {
                     entity,
                     &username,
                     &password,
-                    &name, 
+                    &name,
                     MapId::default(),
-                    Point2D::new(self.config.start.x, self.config.start.y)
+                    Point2D::new(self.config.start.x, self.config.start.y),
                 );
 
                 PlayerData::from(player.clone()).save().unwrap();
@@ -284,7 +287,7 @@ impl GameServer {
 
                 map.settings.cache_key = match SystemTime::now().duration_since(SystemTime::UNIX_EPOCH) {
                     Ok(n) => n.as_secs(),
-                    Err(_) => unreachable!()
+                    Err(_) => unreachable!(),
                 };
 
                 if let Err(e) = map.save() {
@@ -293,7 +296,8 @@ impl GameServer {
 
                 self.maps.insert(map_id, map.clone());
                 let map_list = self.entities_on_map(map_id).collect::<Vec<_>>();
-                self.network.send_list(&map_list, &Packet::MapData(Box::new(map.into())));
+                self.network
+                    .send_list(&map_list, &Packet::MapData(Box::new(map.into())));
             }
             ClientPacket::Input(input) => {
                 self.players.get_mut(&entity).unwrap().inputs.push(input);
@@ -391,7 +395,9 @@ impl GameServer {
                 let (who, sprite) = args.trim().rsplit_once(' ').ok_or("Wrong number of arguments")?;
                 let sprite = sprite.parse().map_err(|_| "Invalid sprite, it must be a number")?;
 
-                let other_entity = *self.players.iter()
+                let other_entity = *self
+                    .players
+                    .iter()
                     .find_map(|(id, player)| (player.name == who).then_some(id))
                     .ok_or("Could not find the player, are they online?")?;
 
@@ -427,7 +433,9 @@ impl GameServer {
             .map(|map| (map.id, map.settings.name.clone()))
             .collect::<HashMap<_, _>>();
 
-        let map = self.maps.get(&map_id)
+        let map = self
+            .maps
+            .get(&map_id)
             .expect("attempting to send map editor for a map that doesnt exist");
 
         let id = map.id;
@@ -493,13 +501,17 @@ impl GameServer {
         let mut valid = map_box.contains_box(&sprite_box);
 
         if check_collisions {
-            valid &= !self.players.iter()
+            valid &= !self
+                .players
+                .iter()
                 .filter(|(id, _player)| **id != state.id)
                 .filter(|(_id, player)| player.map == state.map)
                 .map(|(_id, player)| Player::collision_box(player.position))
                 .any(|b| b.intersects(&sprite_box));
 
-            valid &= !self.maps[&state.map].zones.iter()
+            valid &= !self.maps[&state.map]
+                .zones
+                .iter()
                 .filter(|zone| zone.data == ZoneData::Blocked)
                 .any(|zone| zone.position.intersects(&sprite_box));
         }
@@ -536,14 +548,17 @@ impl GameServer {
 
         let warp = check_collision_with(
             state.position,
-            map.zones.iter().filter(|zone| matches!(zone.data, ZoneData::Warp(_, _, _))),
+            map.zones
+                .iter()
+                .filter(|zone| matches!(zone.data, ZoneData::Warp(_, _, _))),
             |zone| zone.position,
         );
 
         if let Some(Zone {
             data: ZoneData::Warp(map_id, position, direction),
             ..
-        }) = warp {
+        }) = warp
+        {
             state.map = *map_id;
             state.position = *position;
             if let &Some(direction) = direction {
@@ -558,7 +573,7 @@ impl GameServer {
         self.players.get_mut(&state.id).unwrap().apply_state(state);
 
         if old_map != state.map {
-            self.validate_map(state.map );
+            self.validate_map(state.map);
 
             let old_entities: Vec<_> = self.entities_on_map(old_map).collect();
             let new_entities: Vec<_> = self.entities_on_map(state.map).collect();
@@ -579,7 +594,9 @@ impl GameServer {
     }
 
     fn update_players(&mut self) {
-        let updates: Vec<_> = self.players.values_mut()
+        let updates: Vec<_> = self
+            .players
+            .values_mut()
             .map(|player| {
                 let state = player.state();
                 let mut inputs = std::mem::take(&mut player.inputs);
@@ -593,7 +610,8 @@ impl GameServer {
         // get player states
         // update them
 
-        let states: Vec<_> = updates.into_iter()
+        let states: Vec<_> = updates
+            .into_iter()
             .map(|(mut state, inputs, flags)| {
                 for input in inputs {
                     let mut next_state = state.from_input(input, FRICTION);
@@ -630,13 +648,15 @@ impl GameServer {
     }
 
     fn entities_on_map(&self, map_id: MapId) -> impl Iterator<Item = Entity> + '_ {
-        self.players.iter()
+        self.players
+            .iter()
             .filter(move |(_entity, player)| player.map == map_id)
             .map(|(entity, _player)| *entity)
     }
 
     fn entities_on_map_except(&self, map_id: MapId, exclude: Entity) -> impl Iterator<Item = Entity> + '_ {
-        self.players.iter()
+        self.players
+            .iter()
             .filter(move |(entity, player)| player.map == map_id && **entity != exclude)
             .map(|(entity, _player)| *entity)
     }

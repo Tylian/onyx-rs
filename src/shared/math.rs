@@ -7,7 +7,7 @@ pub mod units {
         ($($unit:ident => $default:ty),+) => {
             paste! {
                 $(
-                    pub struct [<$unit Unit>]; 
+                    pub struct [<$unit Unit>];
 
                     pub mod [<$unit:snake>] {
                         pub type Point2D<T = $default> = euclid::Point2D<T, super::[<$unit Unit>]>;
@@ -16,12 +16,12 @@ pub mod units {
                         pub type Size2D<T = $default> = euclid::Size2D<T, super::[<$unit Unit>]>;
                         pub type Rect<T = $default> = euclid::Rect<T, super::[<$unit Unit>]>;
                     }
-    
+
                 )+
             }
         };
     }
-    
+
     euclid_units!(World => f32, Screen => f32, Map => u32);
 }
 

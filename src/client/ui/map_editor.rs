@@ -1,16 +1,18 @@
 use std::collections::{BTreeMap, HashMap};
 
 use euclid::size2;
+use ggegui::egui::collapsing_header::CollapsingState;
+use ggegui::egui::*;
 use glam::UVec2;
-use onyx::{
-    math::units::{map, world::Point2D}, network::{MapId, MapLayer, MapSettings, TileAnimation, ZoneData}, TILE_SIZE
-};
-use ggegui::egui::{*, collapsing_header::CollapsingState};
+use onyx::math::units::map;
+use onyx::math::units::world::Point2D;
+use onyx::network::{MapId, MapLayer, MapSettings, TileAnimation, ZoneData};
+use onyx::TILE_SIZE;
 use strum::IntoEnumIterator;
 
-use crate::{AssetCache, data::Tile};
-
 use super::tile_selector;
+use crate::data::Tile;
+use crate::AssetCache;
 
 pub fn zone_radio(ui: &mut Ui, selected: bool, title: &str, description: &str) -> Response {
     ui.radio(selected, title).on_hover_ui(|ui| {
@@ -44,10 +46,17 @@ fn map_option_selector(ui: &mut Ui, id_source: &str, value: &mut Option<MapId>, 
 
 fn map_selector(ui: &mut Ui, id_source: &str, value: &mut MapId, maps: &BTreeMap<MapId, String>) {
     ComboBox::from_id_source(id_source)
-        .selected_text(format!("{}. {}", value.0, maps.get(value).map(AsRef::as_ref).unwrap_or("")))
+        .selected_text(format!(
+            "{}. {}",
+            value.0,
+            maps.get(value).map(AsRef::as_ref).unwrap_or("")
+        ))
         .show_ui(ui, |ui| {
             for (id, name) in maps {
-                if ui.selectable_label(value == id, format!("{}. {}", id.0, name)).clicked() {
+                if ui
+                    .selectable_label(value == id, format!("{}. {}", id.0, name))
+                    .clicked()
+                {
                     *value = *id;
                 }
             }
@@ -246,13 +255,8 @@ impl MapEditor {
 
         ui.add_space(3.0);
         let tileset = &assets.tileset_egui;
-        tile_selector(
-            ui,
-            *tileset,
-            &mut self.tile_picker,
-            Vec2::new(TILE_SIZE, TILE_SIZE),
-        );
-}
+        tile_selector(ui, *tileset, &mut self.tile_picker, Vec2::new(TILE_SIZE, TILE_SIZE));
+    }
 
     fn show_zone_tab(&mut self, ui: &mut Ui) {
         ui.horizontal(|ui| {
@@ -411,10 +415,7 @@ impl MapEditor {
         ui.horizontal(|ui| {
             // let keys: Vec<_> = self.maps.keys().collect();
             let name = self.maps.get(&self.selected_map).map_or("", String::as_str);
-            ui.add(
-                DragValue::new(&mut self.selected_map.0)
-                    .suffix(format!(". {}", name))
-            );
+            ui.add(DragValue::new(&mut self.selected_map.0).suffix(format!(". {}", name)));
             // auto_complete(ui, ui.id().with("map warp"), &keys, &mut self.selected_map);
 
             // fn label_text(id: MapHash, name: Option<impl AsRef<str>>) -> impl Into<WidgetText> {

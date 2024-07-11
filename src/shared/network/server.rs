@@ -1,9 +1,10 @@
-use std::{collections::HashMap, fmt::Display};
+use std::collections::HashMap;
+use std::fmt::Display;
+
 use serde::{Deserialize, Serialize};
 
-use crate::network::{ChatChannel, Entity, Map, MapSettings, Player, PlayerFlags, MapId};
-
 use super::State;
+use crate::network::{ChatChannel, Entity, Map, MapId, MapSettings, Player, PlayerFlags};
 
 /// Packets sent from the server to the client
 #[derive(Clone, Serialize, Deserialize, PartialEq, Debug)]

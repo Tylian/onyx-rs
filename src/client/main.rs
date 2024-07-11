@@ -1,10 +1,10 @@
 mod data;
+mod game_scene;
 mod network;
 mod scene;
 mod title_scene;
-mod game_scene;
-mod utils;
 mod ui;
+mod utils;
 
 use std::path::PathBuf;
 
@@ -12,11 +12,9 @@ use ggegui::egui::load::SizedTexture;
 use ggegui::Gui;
 use ggez::conf::{WindowMode, WindowSetup};
 use ggez::event::EventHandler;
-use ggez::{event, ContextBuilder};
-use ggez::graphics::{self, Image};
-use ggez::{Context, GameResult};
 use ggez::glam::*;
-
+use ggez::graphics::{self, Image};
+use ggez::{event, Context, ContextBuilder, GameResult};
 use scene::Scene;
 use title_scene::TitleScene;
 
@@ -53,7 +51,7 @@ impl GameHandler {
     fn new(ctx: &mut Context) -> GameResult<Self> {
         Ok(Self {
             scene: Scene::from(TitleScene::new(ctx)?),
-            state: GameState::new(ctx)?
+            state: GameState::new(ctx)?,
         })
     }
 }
@@ -68,14 +66,15 @@ impl EventHandler for GameHandler {
     }
 
     fn quit_event(&mut self, ctx: &mut Context) -> GameResult<bool> {
-       self.scene.event(ctx, &mut self.state, GameEvent::Quit).map(|_| false)
+        self.scene.event(ctx, &mut self.state, GameEvent::Quit).map(|_| false)
     }
 
-    fn key_down_event(&mut self,
-            _ctx: &mut Context,
-            _input: ggez::input::keyboard::KeyInput,
-            _repeated: bool,
-        ) -> GameResult {
+    fn key_down_event(
+        &mut self,
+        _ctx: &mut Context,
+        _input: ggez::input::keyboard::KeyInput,
+        _repeated: bool,
+    ) -> GameResult {
         // Override default so esc doesn't close game
         Ok(())
     }
@@ -111,17 +110,14 @@ impl GameState {
         let mut gui = Gui::new(ctx);
         let assets = AssetCache::new(ctx, &mut gui)?;
 
-        Ok(Self {
-            assets,
-            gui
-        })
+        Ok(Self { assets, gui })
     }
 }
 
 #[derive(Clone, Copy, Eq, PartialEq)]
 enum GameEvent {
     Quit,
-    TextInput(char)
+    TextInput(char),
 }
 
 pub struct AssetCache {
@@ -140,7 +136,7 @@ impl AssetCache {
         Ok(Self {
             sprites,
             tileset,
-            tileset_egui
+            tileset_egui,
         })
     }
 }

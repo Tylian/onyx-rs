@@ -1,5 +1,5 @@
-pub mod network;
 pub mod math;
+pub mod network;
 
 pub const TILE_SIZE: f32 = 48.0;
 pub const SPRITE_SIZE: f32 = 48.0;
@@ -25,4 +25,3 @@ pub const LERP_DURATION: f32 = 1.0 / SERVER_TICK_RATE;
 // pub type WorldVec = Vector2D<f32, WorldUnit>;
 // pub type WorldBox2D = Box2D<f32, WorldUnit>;
 // pub type WorldSize2D = Size2D<f32, WorldUnit>;
-

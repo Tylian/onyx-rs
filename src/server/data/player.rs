@@ -1,8 +1,8 @@
 use std::path::PathBuf;
 
 use anyhow::Result;
-use onyx::network::{Direction, Entity, Input, MapId, Player as NetworkPlayer, PlayerFlags, State};
 use onyx::math::units::world::*;
+use onyx::network::{Direction, Entity, Input, MapId, Player as NetworkPlayer, PlayerFlags, State};
 use onyx::{RUN_SPEED, SPRITE_SIZE};
 use serde::{Deserialize, Serialize};
 
@@ -112,7 +112,7 @@ impl Player {
             max_speed: RUN_SPEED,
         }
     }
-    
+
     pub fn state(&self) -> State {
         State {
             id: self.id,
@@ -159,7 +159,7 @@ impl Player {
     pub fn collision_box(position: Point2D) -> Box2D {
         Box2D::from_origin_and_size(
             position + Vector2D::new(0.0, SPRITE_SIZE / 2.0),
-            Size2D::new(SPRITE_SIZE, SPRITE_SIZE / 2.0)
+            Size2D::new(SPRITE_SIZE, SPRITE_SIZE / 2.0),
         )
     }
 }

@@ -1,13 +1,13 @@
 use ggez::GameResult;
 
-use crate::{
-    game_scene::GameScene, title_scene::TitleScene, GameEvent, GameState
-};
+use crate::game_scene::GameScene;
+use crate::title_scene::TitleScene;
+use crate::{GameEvent, GameState};
 
 //? manual enum dispatch
 pub enum Scene {
     Title(TitleScene),
-    Game(GameScene)
+    Game(GameScene),
 }
 
 impl From<TitleScene> for Scene {
@@ -56,5 +56,5 @@ impl Scene {
 pub enum Transition {
     None,
     Switch(Scene),
-    Quit
+    Quit,
 }

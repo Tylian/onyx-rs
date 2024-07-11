@@ -1,4 +1,6 @@
-use ggez::{context::Has, glam::Vec2, graphics::{Canvas, Color, DrawParam, Drawable, GraphicsContext, Rect, Text, Transform}};
+use ggez::context::Has;
+use ggez::glam::Vec2;
+use ggez::graphics::{Canvas, Color, DrawParam, Drawable, GraphicsContext, Rect, Text, Transform};
 
 /// Shortcut that is equivalent to if !$cond { return Err($err); }
 #[macro_export]
@@ -22,14 +24,14 @@ pub fn ping_pong(t: f32, frames: u32) -> u32 {
 
 pub struct OutlinedText<'a> {
     inner: &'a Text,
-    outline_color: Color
+    outline_color: Color,
 }
 
 impl<'a> OutlinedText<'a> {
     pub fn new(text: &'a Text) -> Self {
         Self {
             inner: text,
-            outline_color: Color::new(0.0, 0.0, 0.0, 0.5)
+            outline_color: Color::new(0.0, 0.0, 0.0, 0.5),
         }
     }
     #[allow(dead_code)]
@@ -62,22 +64,15 @@ impl<'a> Drawable for OutlinedText<'a> {
         let dest = Vec2::from(dest);
 
         for offset in OFFSETS {
-            let param = param.clone()
-                .dest(dest + *offset)
-                .color(self.outline_color);
+            let param = param.clone().dest(dest + *offset).color(self.outline_color);
             canvas.draw(self.inner, param);
         }
-    
+
         canvas.draw(self.inner, param);
     }
 
     fn dimensions(&self, gfx: &impl Has<GraphicsContext>) -> Option<Rect> {
         let rect = self.inner.dimensions(gfx);
-        rect.map(|inner| Rect::new(
-            inner.x - 1.0,
-            inner.y - 1.0,
-            inner.w + 2.0,
-            inner.h + 2.0
-        ))
+        rect.map(|inner| Rect::new(inner.x - 1.0, inner.y - 1.0, inner.w + 2.0, inner.h + 2.0))
     }
 }

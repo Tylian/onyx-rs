@@ -1,12 +1,11 @@
-use onyx::{
-    network::{Direction, Entity, Interpolation, MapId, Player as NetworkPlayer, PlayerFlags, State}, RUN_SPEED, SPRITE_SIZE, TILE_SIZE
-};
-
+use ggez::glam::*;
+use ggez::graphics::{Canvas, Color, DrawParam, PxScale, Text, TextAlign, TextLayout};
 use onyx::math::units::world::*;
+use onyx::network::{Direction, Entity, Interpolation, MapId, Player as NetworkPlayer, PlayerFlags, State};
+use onyx::{RUN_SPEED, SPRITE_SIZE, TILE_SIZE};
 
-use ggez::{glam::*, graphics::{Canvas, Color, DrawParam, PxScale, Text, TextAlign, TextLayout}};
-
-use crate::{utils::{ping_pong, OutlinedText}, AssetCache};
+use crate::utils::{ping_pong, OutlinedText};
+use crate::AssetCache;
 
 #[derive(Debug, Clone, Copy)]
 pub enum Animation {
@@ -104,7 +103,7 @@ impl Player {
             direction: self.direction,
             map: self.map,
             max_speed: self.max_speed,
-            last_sequence_id: self.last_sequence_id
+            last_sequence_id: self.last_sequence_id,
         }
     }
 
@@ -119,13 +118,8 @@ impl Player {
         } else {
             let speed = self.velocity.length();
             self.animation = match self.animation {
-                Animation::Standing => Animation::Moving {
-                    start: time,
-                    speed
-                },
-                Animation::Moving { start, .. } => Animation::Moving {
-                    start, speed
-                },
+                Animation::Standing => Animation::Moving { start: time, speed },
+                Animation::Moving { start, .. } => Animation::Moving { start, speed },
             }
         }
     }
@@ -148,9 +142,7 @@ impl Player {
 
         canvas.draw(
             &OutlinedText::new(&text),
-            DrawParam::default()
-                .dest(position)
-                .color(Color::WHITE)
+            DrawParam::default().dest(position).color(Color::WHITE),
         );
 
         // let mut text = ;
@@ -158,7 +150,6 @@ impl Player {
         //     .color(Color::WHITE)
         //     .dest(position);
         // canvas.draw(&text, params);
-        
 
         // // const FONT_SIZE: u16 = 16;
         // // let measurements = measure_text(&self.name, Some(assets.font), FONT_SIZE, 1.0);
@@ -201,23 +192,17 @@ impl Player {
         let sprite_x = (self.sprite as f32 % 4.0) * 3.0;
         let sprite_y = (self.sprite as f32 / 4.0).floor() * 4.0;
 
-        let xy = vec2(
-            sprite_x * SPRITE_SIZE + offset.x,
-            sprite_y * SPRITE_SIZE + offset.y
-        );
+        let xy = vec2(sprite_x * SPRITE_SIZE + offset.x, sprite_y * SPRITE_SIZE + offset.y);
 
         let size = Vec2::splat(SPRITE_SIZE);
 
-        let uv = assets.sprites.uv_rect(
-            xy.x as u32,
-            xy.y as u32,
-            size.x as u32,
-            size.y as u32
-        );
+        let uv = assets
+            .sprites
+            .uv_rect(xy.x as u32, xy.y as u32, size.x as u32, size.y as u32);
 
-        canvas.draw(&assets.sprites, DrawParam::default()
-            .dest(self.position.round())
-            .src(uv)
+        canvas.draw(
+            &assets.sprites,
+            DrawParam::default().dest(self.position.round()).src(uv),
         );
     }
 
@@ -225,7 +210,7 @@ impl Player {
     pub fn collision_box(position: Point2D) -> Box2D {
         Box2D::from_origin_and_size(
             position + Vector2D::new(0.0, SPRITE_SIZE / 2.0),
-            Size2D::new(SPRITE_SIZE, SPRITE_SIZE / 2.0)
+            Size2D::new(SPRITE_SIZE, SPRITE_SIZE / 2.0),
         )
     }
 }

@@ -1,23 +1,23 @@
 use std::collections::HashMap;
 
 use euclid::size2;
-use message_io::node::StoredNetEvent;
-use onyx::network::{Input, Interpolation, State, Zone};
-use onyx::{ACCELERATION, FRICTION, SPRITE_SIZE, TILE_SIZE};
-use onyx::math::units::{map, screen, world::{self, *}};
-use onyx::network::{client::Packet, server::Packet as ServerPacket, ChatChannel, Entity, MapId, MapLayer, ZoneData};
 use ggegui::egui::{Id, LayerId, Order};
-use ggez::{
-    event::MouseButton, input::keyboard::{KeyCode, KeyMods}, Context, GameResult
-};
+use ggez::event::MouseButton;
+use ggez::input::keyboard::{KeyCode, KeyMods};
+use ggez::{Context, GameResult};
+use message_io::node::StoredNetEvent;
+use onyx::math::units::world::{self, *};
+use onyx::math::units::{map, screen};
+use onyx::network::client::Packet;
+use onyx::network::server::Packet as ServerPacket;
+use onyx::network::{ChatChannel, Entity, Input, Interpolation, MapId, MapLayer, State, Zone, ZoneData};
+use onyx::{ACCELERATION, FRICTION, SPRITE_SIZE, TILE_SIZE};
 
-use crate::{
-    data::{draw_zone, Map, Player}, network::Network, scene::Transition, GameEvent, GameState
-    // state::{UpdateContext, DrawContext, SetupContext, EventContext},
-    // utils::{RectExt, rect, draw_text_shadow}
-};
-
-use crate::ui::{ChatWindow, MapEditor, Wants, Tab};
+use crate::data::{draw_zone, Map, Player};
+use crate::network::Network;
+use crate::scene::Transition;
+use crate::ui::{ChatWindow, MapEditor, Tab, Wants};
+use crate::{GameEvent, GameState};
 
 pub struct GameScene {
     // assets: AssetCache,
@@ -53,7 +53,7 @@ impl GameScene {
             players: HashMap::new(),
             inputs: Vec::new(),
             next_sequence_id: 0,
-            
+
             acceleration: Vector2D::zero(),
             running: true,
 
@@ -81,7 +81,7 @@ impl GameScene {
     fn update_network(&mut self, ctx: &mut Context) {
         while let Some(event) = self.network.receiver.try_receive() {
             match event.network() {
-                StoredNetEvent::Connected(_, _) => {},
+                StoredNetEvent::Connected(_, _) => (),
                 StoredNetEvent::Accepted(_, _) => unreachable!(),
                 StoredNetEvent::Message(_, bytes) => match rmp_serde::from_slice(&bytes) {
                     Ok(message) => self.handle_message(message, ctx),
@@ -102,7 +102,7 @@ impl GameScene {
         }
     }
 
-    fn handle_message(&mut self, message: ServerPacket, ctx: &mut Context) { 
+    fn handle_message(&mut self, message: ServerPacket, ctx: &mut Context) {
         use ServerPacket::*;
 
         // Debug logging of server packets
@@ -114,26 +114,22 @@ impl GameScene {
         }
 
         let time = ctx.time.time_since_start().as_secs_f32();
-        
+
         match message {
             JoinGame(_) | FailedJoin(_) => unreachable!(),
-
             PlayerData(id, player_data) => {
                 if let Some(data) = player_data {
                     self.players.insert(id, Player::from_network(id, data, time));
                 } else {
                     self.players.remove(&id);
                 }
-                
-            },
-
+            }
             PlayerState(id, state) => {
                 self.update_player(id, state, time);
-            },
-
+            }
             ChatLog(channel, message) => {
                 self.ui.chat_window.insert(channel, message);
-            },
+            }
             ChangeMap(id, cache_id) => {
                 self.players.clear();
                 self.ui.map_editor_shown = false;
@@ -155,7 +151,7 @@ impl GameScene {
             MapData(remote) => {
                 let map = Map::try_from(*remote).unwrap();
                 self.change_map(map);
-            },
+            }
             MapEditor {
                 id,
                 width,
@@ -165,7 +161,7 @@ impl GameScene {
             } => {
                 self.ui.map_editor.update(maps, width, height, id, settings);
                 self.ui.map_editor_shown = true;
-            },
+            }
             Flags(entity, flags) => {
                 self.players.get_mut(&entity).unwrap().flags = flags;
             }
@@ -177,24 +173,28 @@ impl GameScene {
         let dt = ctx.time.delta().as_secs_f32();
 
         if self.players.contains_key(&self.local_player) {
-            let (input, mut state, flags) = self.players.get_mut(&self.local_player).map(|player| {
-                let input = Input {
-                    dt,
-                    sequence_id: self.next_sequence_id,
-                    acceleration: self.acceleration,
-                    running: self.running
-                };
-                self.inputs.push(input);
-                self.next_sequence_id += 1;
+            let (input, mut state, flags) = self
+                .players
+                .get_mut(&self.local_player)
+                .map(|player| {
+                    let input = Input {
+                        dt,
+                        sequence_id: self.next_sequence_id,
+                        acceleration: self.acceleration,
+                        running: self.running,
+                    };
+                    self.inputs.push(input);
+                    self.next_sequence_id += 1;
 
-                let state = player.state();
+                    let state = player.state();
 
-                (input, state, player.flags)
-            }).expect("Could not get local player");
+                    (input, state, player.flags)
+                })
+                .expect("Could not get local player");
 
             self.network.send(&Packet::Input(input));
             state.apply_input(input, self.test_friction);
-            
+
             if self.validate_state(&state, !flags.in_map_editor) {
                 if let Some(player) = self.players.get_mut(&self.local_player) {
                     player.update_state(state);
@@ -204,7 +204,9 @@ impl GameScene {
         }
 
         for (entity, player) in &mut self.players {
-            if *entity == self.local_player { continue; }
+            if *entity == self.local_player {
+                continue;
+            }
             if let Some(ref interpolation) = player.interpolation {
                 let state = interpolation.lerp(time);
                 player.update_state(state);
@@ -214,7 +216,8 @@ impl GameScene {
     }
 
     fn reconcile_player(&mut self, mut server_state: State) {
-        self.inputs.retain(|input| input.sequence_id > server_state.last_sequence_id);
+        self.inputs
+            .retain(|input| input.sequence_id > server_state.last_sequence_id);
         for input in &self.inputs {
             server_state.apply_input(*input, self.test_friction);
         }
@@ -227,12 +230,17 @@ impl GameScene {
         let mut valid = map_box.contains_box(&sprite_box);
 
         if check_collisions {
-            valid &= !self.players.iter()
+            valid &= !self
+                .players
+                .iter()
                 .filter(|(id, _player)| **id != state.id)
                 .map(|(_id, player)| Player::collision_box(player.position))
                 .any(|b| b.intersects(&sprite_box));
 
-            valid &= !self.map.zones.iter()
+            valid &= !self
+                .map
+                .zones
+                .iter()
                 .filter(|zone| zone.data == ZoneData::Blocked)
                 .any(|zone| zone.position.intersects(&sprite_box));
         }
@@ -251,7 +259,7 @@ impl GameScene {
             } else {
                 let old_state = self.players[&player].state();
                 self.players.get_mut(&player).unwrap().update_state(server_state);
-    
+
                 self.players.get_mut(&player).unwrap().interpolation = Some(Interpolation {
                     source: old_state,
                     target: server_state,
@@ -276,7 +284,7 @@ impl GameScene {
         let gui_ctx = state.gui.ctx();
         let screen_size = self.screen_size(ctx);
         let mouse_position = self.screen_to_world(ctx, self.mouse_screen(ctx));
-        
+
         // // Show egui debugging
         // #[cfg(debug_assertions)]
         // if false {
@@ -450,7 +458,7 @@ impl GameScene {
 
                                 self.map.update_autotile_cache();
                                 self.ui.last_tile = Some(current_tile);
-                            }                                
+                            }
                         }
                     }
                 }
@@ -469,7 +477,7 @@ impl GameScene {
                         if mouse_down {
                             let size = (*drag_start - mouse_position)
                                 .max(Vector2D::splat(6.0)) // assume that 6x6 is the smallest you can make.
-                                .to_size(); 
+                                .to_size();
 
                             *drag_size = size;
                         } else {
@@ -491,8 +499,7 @@ impl GameScene {
     #[allow(unused_variables)]
     fn update_camera(&mut self, ctx: &mut Context) {
         //? World coords = screen cords while zoom = 1
-        let screen_size = self.screen_size(ctx)
-            .cast_unit();
+        let screen_size = self.screen_size(ctx).cast_unit();
 
         if let Some(player) = self.players.get_mut(&self.local_player) {
             let map_size = self.map.world_size();
@@ -517,10 +524,7 @@ impl GameScene {
             }
 
             // self.camera.target = target;
-            self.camera = Rect::new(
-                origin - screen_size / 2.0,
-                screen_size
-            );
+            self.camera = Rect::new(origin - screen_size / 2.0, screen_size);
         }
     }
 
@@ -530,14 +534,25 @@ impl GameScene {
         let screen_size = self.screen_size(ctx);
         let mut canvas = Canvas::from_frame(ctx, Color::BLACK);
 
-        let camera_rect = ggez::graphics::Rect::new(self.camera.origin.x, self.camera.origin.y, self.camera.size.width, self.camera.size.height);
+        let camera_rect = ggez::graphics::Rect::new(
+            self.camera.origin.x,
+            self.camera.origin.y,
+            self.camera.size.width,
+            self.camera.size.height,
+        );
         canvas.set_screen_coordinates(camera_rect);
 
         // Render time
         let time = ctx.time.time_since_start().as_secs_f32();
 
         // Draw first half of map
-        self.map.draw_layers(ctx, &mut canvas, &[MapLayer::Ground, MapLayer::Mask, MapLayer::Mask2], &mut state.assets, time);
+        self.map.draw_layers(
+            ctx,
+            &mut canvas,
+            &[MapLayer::Ground, MapLayer::Mask, MapLayer::Mask2],
+            &mut state.assets,
+            time,
+        );
 
         // Draw players, NPCs, objects, etc.
         let mut players = self.players.values().collect::<Vec<_>>();
@@ -548,7 +563,13 @@ impl GameScene {
         }
 
         // Draw 2nd half of map.
-        self.map.draw_layers(ctx, &mut canvas, &[MapLayer::Fringe, MapLayer::Fringe2], &mut state.assets, time);
+        self.map.draw_layers(
+            ctx,
+            &mut canvas,
+            &[MapLayer::Fringe, MapLayer::Fringe2],
+            &mut state.assets,
+            time,
+        );
 
         if self.ui.map_editor_shown {
             self.map.draw_zones(ctx, &mut canvas)?;
@@ -561,21 +582,27 @@ impl GameScene {
         // UI drawing starts here
         canvas.set_screen_coordinates(Rect::new(0.0, 0.0, screen_size.width, screen_size.height));
         canvas.draw(&state.gui, DrawParam::default());
-        
+
         // Debug UI
         let mut debug_lines = Text::new(format!("FPS: {:.02}\n", ctx.time.fps()));
 
         if let Some(player) = self.players.get_mut(&self.local_player) {
-            debug_lines.add(format!("Velocity: {:.02?}  FRICTION: {:0.2}\n", player.velocity, self.test_friction));
-            debug_lines.add(format!("Acceleration: {:.02?}  ACCELERATION: {:0.2}\n", self.acceleration, self.test_acceleration));
-            debug_lines.add(format!("Position: {:0.2?}  Max Speed: {:.02}\n", player.position, player.max_speed));
+            debug_lines.add(format!(
+                "Velocity: {:.02?}  FRICTION: {:0.2}\n",
+                player.velocity, self.test_friction
+            ));
+            debug_lines.add(format!(
+                "Acceleration: {:.02?}  ACCELERATION: {:0.2}\n",
+                self.acceleration, self.test_acceleration
+            ));
+            debug_lines.add(format!(
+                "Position: {:0.2?}  Max Speed: {:.02}\n",
+                player.position, player.max_speed
+            ));
             debug_lines.add(format!("Predictions: {}", self.inputs.len()));
         }
 
-        canvas.draw(
-            &debug_lines,
-            DrawParam::from([0.0, 0.0]).color(Color::WHITE),
-        );
+        canvas.draw(&debug_lines, DrawParam::from([0.0, 0.0]).color(Color::WHITE));
 
         canvas.finish(ctx)
     }
@@ -587,17 +614,18 @@ impl GameScene {
         Ok(())
     }
 
-    fn maintain(&mut self, _ctx: &mut Context, _state: &mut GameState) {
-       
-    }
+    fn maintain(&mut self, _ctx: &mut Context, _state: &mut GameState) {}
 
     fn screen_to_world(&self, ctx: &Context, point: screen::Point2D) -> world::Point2D {
         let screen_size = self.screen_size(ctx);
         let camera_position = self.camera.origin;
         let camera_size = self.camera.size;
 
-        let transform = euclid::Transform2D::scale(camera_size.width / screen_size.width, camera_size.height / screen_size.height)
-            .then_translate(camera_position.to_vector());
+        let transform = euclid::Transform2D::scale(
+            camera_size.width / screen_size.width,
+            camera_size.height / screen_size.height,
+        )
+        .then_translate(camera_position.to_vector());
 
         transform.transform_point(point)
 
@@ -607,13 +635,15 @@ impl GameScene {
     #[allow(dead_code)]
     fn world_to_screen(&self, ctx: &Context, point: world::Point2D) -> screen::Point2D {
         use euclid::Transform2D;
-        
+
         let screen_size = self.screen_size(ctx);
         let camera_position = self.camera.origin;
         let camera_size = self.camera.size;
 
-        let transform = Transform2D::translation(-camera_position.x, -camera_position.y)
-            .then_scale(screen_size.width / camera_size.width, screen_size.height / camera_size.height);
+        let transform = Transform2D::translation(-camera_position.x, -camera_position.y).then_scale(
+            screen_size.width / camera_size.width,
+            screen_size.height / camera_size.height,
+        );
 
         transform.transform_point(point)
     }

@@ -1,6 +1,6 @@
-use onyx::network::ChatChannel;
-use ggegui::egui::{Align2, Color32, ComboBox, Context, Key, Response, RichText, ScrollArea, Ui, Window};
 use egui_extras::{Size, StripBuilder};
+use ggegui::egui::{Align2, Color32, ComboBox, Context, Key, Response, RichText, ScrollArea, Ui, Window};
+use onyx::network::ChatChannel;
 // use macroquad::window::screen_height;
 
 pub type ChatMessage = (ChatChannel, String);

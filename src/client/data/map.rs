@@ -2,23 +2,28 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use anyhow::Result;
-use ggez::GameResult;
-use onyx::{
-    math::units::{map::*, world},
-    network::{Map as NetworkMap, Tile as NetworkTile, MapLayer, MapSettings, TileAnimation, ZoneData, MapId, Zone},
-    TILE_SIZE
-};
-use ggez::graphics::{Color, DrawParam, InstanceArray};
-use ggez::Context;
+use ggez::glam::*;
+use ggez::graphics::{Canvas, Color, DrawParam, InstanceArray};
+use ggez::{Context, GameResult};
 use ndarray::{azip, indices, Array2, Zip};
-use ggez::{graphics::Canvas, glam::*};
+use onyx::math::units::map::*;
+use onyx::math::units::world;
+use onyx::network::{
+    Map as NetworkMap,
+    MapId,
+    MapLayer,
+    MapSettings,
+    Tile as NetworkTile,
+    TileAnimation,
+    Zone,
+    ZoneData,
+};
+use onyx::TILE_SIZE;
 use strum::{EnumCount, IntoEnumIterator};
 use thiserror::Error;
 
-use crate::ensure;
-use crate::utils::OutlinedText;
-use crate::AssetCache;
-use crate::utils::ping_pong;
+use crate::utils::{ping_pong, OutlinedText};
+use crate::{ensure, AssetCache};
 
 const OFFSETS: &[(i32, i32)] = &[(0, -1), (1, 0), (0, 1), (-1, 0), (1, -1), (1, 1), (-1, 1), (-1, -1)];
 
@@ -111,9 +116,7 @@ impl Tile {
         }
 
         let uv = assets.tileset.uv_rect(uv.x, uv.y, TILE_SIZE as u32, TILE_SIZE as u32);
-        batch.push(DrawParam::default()
-            .src(uv)
-            .dest(position));
+        batch.push(DrawParam::default().src(uv).dest(position));
     }
 }
 
@@ -134,7 +137,14 @@ impl AutoTile {
             ],
         }
     }
-    pub fn draw(&self, batch: &mut InstanceArray, position: world::Point2D, animation: Option<TileAnimation>, assets: &mut AssetCache, time: f32) {
+    pub fn draw(
+        &self,
+        batch: &mut InstanceArray,
+        position: world::Point2D,
+        animation: Option<TileAnimation>,
+        assets: &mut AssetCache,
+        time: f32,
+    ) {
         const A: world::Vector2D = world::Vector2D::new(0.0, 0.0);
         const B: world::Vector2D = world::Vector2D::new(24.0, 0.0);
         const C: world::Vector2D = world::Vector2D::new(0.0, 24.0);
@@ -154,14 +164,13 @@ impl AutoTile {
             }
 
             let uv = assets.tileset.uv_rect(
-                uv.x, uv.y,
+                uv.x,
+                uv.y,
                 ((TILE_SIZE as i32) / 2) as u32,
-                ((TILE_SIZE as i32) / 2) as u32
+                ((TILE_SIZE as i32) / 2) as u32,
             );
 
-            batch.push(DrawParam::default()
-                .src(uv)
-                .dest(position));
+            batch.push(DrawParam::default().src(uv).dest(position));
         };
 
         draw_subtile(batch, position + A, self.cache[0]);
@@ -201,19 +210,9 @@ pub fn draw_zone(ctx: &mut Context, canvas: &mut Canvas, position: world::Box2D,
     // todo ggez::graphics::Mesh::new_rectangle
     let rect = Rect::new(position.min.x, position.min.y, position.width(), position.height());
 
-    let background = ggez::graphics::Mesh::new_rectangle(
-        ctx,
-        DrawMode::fill(),
-        rect,
-        background_color
-    )?;
+    let background = ggez::graphics::Mesh::new_rectangle(ctx, DrawMode::fill(), rect, background_color)?;
 
-    let outline = ggez::graphics::Mesh::new_rectangle(
-        ctx,
-        DrawMode::stroke(1.0),
-        rect,
-        color
-    )?;
+    let outline = ggez::graphics::Mesh::new_rectangle(ctx, DrawMode::stroke(1.0), rect, color)?;
 
     canvas.draw(&background, DrawParam::default());
     canvas.draw(&outline, DrawParam::default());
@@ -224,13 +223,10 @@ pub fn draw_zone(ctx: &mut Context, canvas: &mut Canvas, position: world::Box2D,
 
     canvas.draw(
         &OutlinedText::new(&text),
-        DrawParam::default()
-            .dest(position.center())
-            .color(color)
+        DrawParam::default().dest(position.center()).color(color),
     );
 
-  
-  Ok(())
+    Ok(())
 }
 
 #[derive(Clone)]
@@ -334,7 +330,14 @@ impl Map {
         self.layers[&layer].iter().map(Option::as_ref)
     }
 
-    pub fn draw_layer(&self, ctx: &mut Context, canvas: &mut Canvas, layer: MapLayer, assets: &mut AssetCache, time: f32) {
+    pub fn draw_layer(
+        &self,
+        ctx: &mut Context,
+        canvas: &mut Canvas,
+        layer: MapLayer,
+        assets: &mut AssetCache,
+        time: f32,
+    ) {
         let mut batch = InstanceArray::new(ctx, Some(assets.tileset.clone()));
 
         let layers = &self.layers[&layer];
@@ -352,7 +355,14 @@ impl Map {
     }
 
     // why yes i am lazy
-    pub fn draw_layers(&self, ctx: &mut Context, canvas: &mut Canvas, layers: &[MapLayer], assets: &mut AssetCache, time: f32) {
+    pub fn draw_layers(
+        &self,
+        ctx: &mut Context,
+        canvas: &mut Canvas,
+        layers: &[MapLayer],
+        assets: &mut AssetCache,
+        time: f32,
+    ) {
         for layer in layers.iter() {
             self.draw_layer(ctx, canvas, *layer, assets, time);
         }
@@ -436,7 +446,6 @@ impl Map {
         self.update_autotile_cache();
     }
 }
-
 
 #[derive(Debug, Error)]
 pub enum MapError {

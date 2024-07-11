@@ -1,14 +1,17 @@
-use std::{net::SocketAddr, path::PathBuf};
+use std::net::SocketAddr;
+use std::path::PathBuf;
 
+use ggegui::{egui, GuiContext};
+use ggez::graphics::{Canvas, Color, DrawParam};
+use ggez::{Context, GameResult};
 use message_io::node::StoredNetEvent;
 use onyx::network::client::Packet;
-use ggez::{Context, GameResult, graphics::{Color, Canvas, DrawParam}};
 use serde::{Deserialize, Serialize};
-use ggegui::{egui, GuiContext};
 
-use crate::{
-    game_scene::GameScene, network::Network, scene::Transition, GameEvent, GameState
-};
+use crate::game_scene::GameScene;
+use crate::network::Network;
+use crate::scene::Transition;
+use crate::{GameEvent, GameState};
 
 pub struct TitleScene {
     loading: bool,
@@ -194,10 +197,7 @@ impl TitleScene {
 
     pub fn draw(&mut self, ctx: &mut Context, state: &mut GameState) -> GameResult<()> {
         let mut canvas = Canvas::from_frame(ctx, Color::BLACK);
-        canvas.draw(
-			&state.gui, 
-			DrawParam::default().dest(glam::Vec2::ZERO),
-		);
+        canvas.draw(&state.gui, DrawParam::default().dest(glam::Vec2::ZERO));
         canvas.finish(ctx)
     }
 
@@ -224,7 +224,7 @@ impl TitleScene {
                         self.error = Some(String::from("could not connect"));
                         should_reconnect = true;
                     }
-                },
+                }
                 StoredNetEvent::Accepted(_, _) => unreachable!(),
                 StoredNetEvent::Message(_, bytes) => {
                     use onyx::network::server::Packet as ServerPacket;
@@ -235,11 +235,11 @@ impl TitleScene {
                                 username: self.username.clone(),
                                 password: self.save_password.then_some(self.password.clone()),
                             };
-    
+
                             if let Err(e) = settings.save() {
                                 println!("Couldn't write settings, just fyi: {:?}", e);
                             }
-    
+
                             let next_scene = GameScene::new(entity, network, ctx);
                             return Ok(Transition::Switch(next_scene.into()));
                         }
@@ -253,10 +253,10 @@ impl TitleScene {
                 StoredNetEvent::Disconnected(_) => {
                     self.error = Some(String::from("disconnected"));
                     should_reconnect = true;
-                },
+                }
             }
         }
-        
+
         if should_reconnect {
             network.stop();
             self.connect();
