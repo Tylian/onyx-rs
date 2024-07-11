@@ -1,9 +1,10 @@
 use std::collections::HashMap;
 
-use euclid::{approxeq::ApproxEq, size2};
-use onyx::{ACCELERATION, FRICTION, RUN_SPEED, SPRITE_SIZE, TILE_SIZE, WALK_SPEED};
+use euclid::size2;
+use onyx::network::{Input, Interpolation, State, Zone};
+use onyx::{ACCELERATION, FRICTION, SPRITE_SIZE, TILE_SIZE};
 use onyx::math::units::{map, screen, world::{self, *}};
-use onyx::network::{client::Packet, server::Packet as ServerPacket, ChatChannel, Direction, Entity, MapId, MapLayer, ZoneData};
+use onyx::network::{client::Packet, server::Packet as ServerPacket, ChatChannel, Entity, MapId, MapLayer, ZoneData};
 use ggegui::egui::{Id, LayerId, Order};
 use ggez::{
     event::MouseButton, input::keyboard::{KeyCode, KeyMods}, Context, GameResult
@@ -11,7 +12,7 @@ use ggez::{
 use renet::DefaultChannel;
 
 use crate::{
-    data::{draw_zone, Animation, Interpolation, Map, Player, Zone}, network::Network, scene::Transition, GameEvent, GameState
+    data::{draw_zone, Map, Player}, network::Network, scene::Transition, GameEvent, GameState
     // state::{UpdateContext, DrawContext, SetupContext, EventContext},
     // utils::{RectExt, rect, draw_text_shadow}
 };
@@ -28,11 +29,19 @@ pub struct GameScene {
     // assets: AssetCache,
     // camera: Camera,
     camera: Rect,
-    last_position_send: f32,
-    local_player: Entity,
     map: Map,
     network: Network,
+
     players: HashMap<Entity, Player>,
+    inputs: Vec<Input>,
+    next_sequence_id: u64,
+    local_player: Entity,
+
+    acceleration: Vector2D,
+    running: bool,
+    test_friction: f32,
+    test_acceleration: f32,
+
     ui: UiState,
 }
 
@@ -43,15 +52,23 @@ impl GameScene {
         let screen_size: Size2D = ctx.gfx.drawable_size().into();
 
         Self {
-            // assets,
-            local_player,
-            players: HashMap::new(),
             network,
             map: Map::new(MapId::default(), size2(20, 15)),
             camera: Rect::new(Point2D::new(0.0, 0.0), screen_size),
-            // camera: Camera::default(),
+
+            local_player,
+            players: HashMap::new(),
+            inputs: Vec::new(),
+            next_sequence_id: 0,
+            
+            acceleration: Vector2D::zero(),
+            running: true,
+
+            test_acceleration: ACCELERATION,
+            test_friction: FRICTION,
+
             ui: UiState::default(),
-            last_position_send: 0.0,
+
         }
     }
 
@@ -63,6 +80,8 @@ impl GameScene {
 
         self.update_gui(ctx, state);
         state.gui.update(ctx);
+
+        self.maintain(ctx, state);
 
         Ok(Transition::None)
     }
@@ -84,19 +103,15 @@ impl GameScene {
             };
         }
 
-        const UPDATE_DELAY: f32 = 1.0 / 20.0; // update time in hz
-        if ctx.time.time_since_start().as_secs_f32() >= self.last_position_send + UPDATE_DELAY {
-            if let Some(player) = self.players.get(&self.local_player) {
-                self.network.send(&Packet::Move {
-                    position: player.position,
-                    velocity: player.velocity,
-                });
-            }
-        }
-
-        if let Err(e) = self.network.transport.send_packets(&mut self.network.client) {
-            panic!("Error sending packets: {e}");
-        }
+        // const UPDATE_DELAY: f32 = 1.0 / 20.0; // update time in hz
+        // if ctx.time.time_since_start().as_secs_f32() >= self.last_position_send + UPDATE_DELAY {
+        //     if let Some(player) = self.players.get(&self.local_player) {
+        //         self.network.send(&Packet::Move {
+        //             position: player.position,
+        //             velocity: player.velocity,
+        //         });
+        //     }
+        // }
     }
 
     fn process_chat_message(&mut self, channel: ChatChannel, text: String) {
@@ -120,20 +135,27 @@ impl GameScene {
             }
         }
 
-        let time = ctx.time.time_since_start();
+        let time = ctx.time.time_since_start().as_secs_f32();
         
         match message {
             JoinGame(_) | FailedJoin(_) => unreachable!(),
 
             PlayerData(id, player_data) => {
-                self.players.insert(id, Player::from_network(id, player_data, time.as_secs_f32()));
-            }
-            RemoveData(id) => {
-                self.players.remove(&id);
-            }
+                if let Some(data) = player_data {
+                    self.players.insert(id, Player::from_network(id, data, time));
+                } else {
+                    self.players.remove(&id);
+                }
+                
+            },
+
+            PlayerState(id, state) => {
+                self.update_player(id, state, time);
+            },
+
             ChatLog(channel, message) => {
                 self.ui.chat_window.insert(channel, message);
-            }
+            },
             ChangeMap(id, cache_id) => {
                 self.players.clear();
                 self.ui.map_editor_shown = false;
@@ -152,40 +174,10 @@ impl GameScene {
                     self.change_map(map.unwrap());
                 }
             }
-            PlayerMove {
-                entity,
-                position,
-                velocity,
-            } => {
-                if let Some(player) = self.players.get_mut(&entity) {
-                    if let Some(direction) = Direction::from_velocity(velocity) {
-                        player.direction = direction;
-                    }
-                    
-                    if !velocity.approx_eq(&Vector2D::zero()) {
-                        player.velocity = velocity;
-                        
-                        // ? currently the player position is extrapolated if we don't recieve updates quick enough
-                        // ? the below interpolation is based on the client's current local position as the starting point
-                        // ? which during lag could look pretty wild. evaluate if this is the best approach
-                        // ? the effect is entirely visual, so pick what would look best.
-                        let interpolation = Interpolation {
-                            initial: player.position,
-                            target: position,
-                            start_time: time.as_secs_f32(),
-                            duration: 1.0 / 20.0,
-                        };
-                        player.interpolation = Some(interpolation);
-                    } else {
-                        player.animation = Animation::Standing;
-                        player.velocity = Vector2D::zero();
-                    }
-                }
-            }
             MapData(remote) => {
                 let map = Map::try_from(*remote).unwrap();
                 self.change_map(map);
-            }
+            },
             MapEditor {
                 id,
                 width,
@@ -195,7 +187,7 @@ impl GameScene {
             } => {
                 self.ui.map_editor.update(maps, width, height, id, settings);
                 self.ui.map_editor_shown = true;
-            }
+            },
             Flags(entity, flags) => {
                 self.players.get_mut(&entity).unwrap().flags = flags;
             }
@@ -203,72 +195,90 @@ impl GameScene {
     }
 
     fn update_players(&mut self, ctx: &mut Context) {
-        let player_boxes: Vec<_> = self.players.iter()
-            .map(|(cid, player)| (*cid, Player::collision_box(player.position)))
-            .collect();
-    
         let time = ctx.time.time_since_start().as_secs_f32();
         let dt = ctx.time.delta().as_secs_f32();
 
-        let entity = self.local_player;
-        if let Some(player) = self.players.get_mut(&entity) {
-            let velocity = (player.velocity + player.acceleration ).clamp_length(0.0, player.max_speed);
-            let friction_force = velocity.try_normalize().unwrap_or_default() * player.test_friction * dt;
+        if self.players.contains_key(&self.local_player) {
+            let (input, mut state, flags) = self.players.get_mut(&self.local_player).map(|player| {
+                let input = Input {
+                    dt,
+                    sequence_id: self.next_sequence_id,
+                    acceleration: self.acceleration,
+                    running: self.running
+                };
+                self.inputs.push(input);
+                self.next_sequence_id += 1;
 
-            player.velocity = if friction_force.square_length() <= velocity.square_length() {
-                velocity - friction_force
-            } else {
-                Vector2D::zero()
-            };
+                let state = player.state();
 
-            if player.velocity.square_length() >= f32::EPSILON * f32::EPSILON {
-                let offset = player.velocity * dt;
-                let new_position = player.position + offset;
+                (input, state, player.flags)
+            }).expect("Could not get local player");
 
-                let sprite_box = Player::collision_box(new_position);
-                let map_box = Box2D::from_size(self.map.world_size());
-
-                let mut valid = map_box.contains_box(&sprite_box);
-
-                if !player.flags.in_map_editor {
-                    valid &= !player_boxes.iter()
-                        .filter(|(id, _b)| *id != entity)
-                        .any(|(_, b)| b.intersects(&sprite_box));
-
-                    valid &= !self.map.zones.iter()
-                        .filter(|zone| zone.data == ZoneData::Blocked)
-                        .any(|zone| zone.position.intersects(&sprite_box));
+            self.network.send(&Packet::Input(input));
+            state.apply_input(input, self.test_friction);
+            
+            if self.validate_state(&state, !flags.in_map_editor) {
+                if let Some(player) = self.players.get_mut(&self.local_player) {
+                    player.update_state(state);
+                    player.update_animation(time);
                 }
-
-                if valid {
-                    player.position = new_position;
-                }
-            } else {
-                player.velocity = Vector2D::zero();
             }
         }
 
         for (entity, player) in &mut self.players {
             if *entity == self.local_player { continue; }
-            if let Some(interpolation) = &mut player.interpolation {
-                let elapsed = time - interpolation.start_time;
-                let progress = elapsed / interpolation.duration;
-
-                if progress < 1.0 {
-                    let new_position = interpolation.initial.lerp(interpolation.target, progress);
-                    let velocity = (new_position - player.position).normalize();
-                    let new_direction = Direction::from_velocity(velocity);
-
-                    player.position = interpolation.initial.lerp(interpolation.target, progress);
-                    if let Some(direction) = new_direction {
-                        player.direction = direction;
-                    }
-                } else {
-                    player.position = interpolation.target;
-                    player.interpolation = None;
-                }
-
+            if let Some(ref interpolation) = player.interpolation {
+                let state = interpolation.lerp(time);
+                player.update_state(state);
                 player.update_animation(time);
+            }
+        }
+    }
+
+    fn reconcile_player(&mut self, mut server_state: State) {
+        self.inputs.retain(|input| input.sequence_id > server_state.last_sequence_id);
+        for input in &self.inputs {
+            server_state.apply_input(*input, self.test_friction);
+        }
+    }
+
+    fn validate_state(&self, state: &State, check_collisions: bool) -> bool {
+        let sprite_box = Player::collision_box(state.position);
+        let map_box = Box2D::from_size(self.map.world_size());
+
+        let mut valid = map_box.contains_box(&sprite_box);
+
+        if check_collisions {
+            valid &= !self.players.iter()
+                .filter(|(id, _player)| **id != state.id)
+                .map(|(_id, player)| Player::collision_box(player.position))
+                .any(|b| b.intersects(&sprite_box));
+
+            valid &= !self.map.zones.iter()
+                .filter(|zone| zone.data == ZoneData::Blocked)
+                .any(|zone| zone.position.intersects(&sprite_box));
+        }
+
+        valid
+    }
+
+    pub fn update_player(&mut self, player: Entity, server_state: State, time: f32) {
+        if player == self.local_player {
+            self.reconcile_player(server_state);
+        } else {
+            let local_map = self.players[&self.local_player].map;
+
+            if local_map != server_state.map {
+                self.players.remove(&player);
+            } else {
+                let old_state = self.players[&player].state();
+                self.players.get_mut(&player).unwrap().update_state(server_state);
+    
+                self.players.get_mut(&player).unwrap().interpolation = Some(Interpolation {
+                    source: old_state,
+                    target: server_state,
+                    start: time,
+                });
             }
         }
     }
@@ -373,98 +383,50 @@ impl GameScene {
     }
 
     fn update_keyboard(&mut self, ctx: &mut Context) {
-        let time = ctx.time.time_since_start().as_secs_f32();
         let keyboard = &ctx.keyboard;
 
-        if let Some(player) = self.players.get_mut(&self.local_player) {
-            let mut direction = Vector2D::zero();
-            if keyboard.is_key_pressed(KeyCode::Up) || keyboard.is_key_pressed(KeyCode::W) {
-                direction.y = -1.0;
-            } else if keyboard.is_key_pressed(KeyCode::Down) || keyboard.is_key_pressed(KeyCode::S) {
-                direction.y = 1.0;
-            } else {
-                direction.y = 0.0;
-            }
+        let mut direction = Vector2D::zero();
+        if keyboard.is_key_pressed(KeyCode::Up) || keyboard.is_key_pressed(KeyCode::W) {
+            direction.y = -1.0;
+        } else if keyboard.is_key_pressed(KeyCode::Down) || keyboard.is_key_pressed(KeyCode::S) {
+            direction.y = 1.0;
+        } else {
+            direction.y = 0.0;
+        }
 
-            if keyboard.is_key_pressed(KeyCode::Left) || keyboard.is_key_pressed(KeyCode::A) {
-                direction.x = -1.0;
-            } else if keyboard.is_key_pressed(KeyCode::Right) || keyboard.is_key_pressed(KeyCode::D) {
-                direction.x = 1.0;
-            } else {
-                direction.x = 0.0;
-            }
+        if keyboard.is_key_pressed(KeyCode::Left) || keyboard.is_key_pressed(KeyCode::A) {
+            direction.x = -1.0;
+        } else if keyboard.is_key_pressed(KeyCode::Right) || keyboard.is_key_pressed(KeyCode::D) {
+            direction.x = 1.0;
+        } else {
+            direction.x = 0.0;
+        }
 
-            player.acceleration = direction.try_normalize().unwrap_or(Vector2D::zero()) * player.test_acceleration;
-            player.max_speed = if keyboard.active_mods().contains(KeyMods::SHIFT) {
-                WALK_SPEED
-            } else {
-                RUN_SPEED
-            };
+        self.acceleration = direction.try_normalize().unwrap_or(Vector2D::zero()) * self.test_acceleration;
+        self.running = !keyboard.active_mods().contains(KeyMods::SHIFT);
 
-            // todo
-            player.direction = Direction::from_velocity(player.acceleration).unwrap_or(player.direction);
-            player.update_animation(time);
+        if keyboard.is_key_just_pressed(KeyCode::Y) {
+            self.test_acceleration += 1.0;
+        } else if keyboard.is_key_just_pressed(KeyCode::H) {
+            self.test_acceleration -= 1.0;
+        }
 
-            if keyboard.is_key_just_pressed(KeyCode::Y) {
-                player.test_acceleration += 1.0;
-            } else if keyboard.is_key_just_pressed(KeyCode::H) {
-                player.test_acceleration -= 1.0;
-            }
+        if keyboard.is_key_just_pressed(KeyCode::U) {
+            self.test_friction += 1.0;
+        } else if keyboard.is_key_just_pressed(KeyCode::J) {
+            self.test_friction -= 1.0;
+        }
 
-            if keyboard.is_key_just_pressed(KeyCode::U) {
-                player.test_friction += 1.0;
-            } else if keyboard.is_key_just_pressed(KeyCode::J) {
-                player.test_friction -= 1.0;
-            }
+        if keyboard.is_key_just_pressed(KeyCode::I) {
+            self.test_acceleration *= 2.0;
+        } else if keyboard.is_key_just_pressed(KeyCode::K) {
+            self.test_acceleration /= 2.0;
+        }
 
-            if keyboard.is_key_just_pressed(KeyCode::I) {
-                player.test_acceleration *= 2.0;
-            } else if keyboard.is_key_just_pressed(KeyCode::K) {
-                player.test_acceleration /= 2.0;
-            }
-
-            if keyboard.is_key_just_pressed(KeyCode::O) {
-                player.test_friction *= 2.0;
-            } else if keyboard.is_key_just_pressed(KeyCode::L) {
-                player.test_friction /= 2.0;
-            }
-
-            // let movement = if keyboard.is_key_pressed(KeyCode::Up) || keyboard.is_key_pressed(KeyCode::W) {
-            //     Some(Direction::North)
-            // } else if keyboard.is_key_pressed(KeyCode::Down) || keyboard.is_key_pressed(KeyCode::S) {
-            //     Some(Direction::South)
-            // } else if keyboard.is_key_pressed(KeyCode::Left) || keyboard.is_key_pressed(KeyCode::A) {
-            //     Some(Direction::West)
-            // } else if keyboard.is_key_pressed(KeyCode::Right) || keyboard.is_key_pressed(KeyCode::D) {
-            //     Some(Direction::East)
-            // } else {
-            //     None
-            // };
-
-            // let speed = if keyboard.active_mods().contains(KeyMods::SHIFT) {
-            //     WALK_SPEED
-            // } else {
-            //     RUN_SPEED
-            // };
-            // let cache = movement.map(|movement| (movement, speed)); // lol
-
-            // if cache != self.last_movement {
-            //     self.last_movement = cache;
-            //     if let Some(direction) = movement {
-            //         let velocity = Vec2::from(direction.offset_f32()) * speed;
-
-            //         player.animation = Animation::Walking {
-            //             start: time,
-            //             speed,
-            //         };
-            //         player.velocity = Some(velocity);
-            //         player.last_update = time;
-            //         player.direction = direction;
-            //     } else {
-            //         player.animation = Animation::Standing;
-            //         player.velocity = None;
-            //     };
-            // }
+        if keyboard.is_key_just_pressed(KeyCode::O) {
+            self.test_friction *= 2.0;
+        } else if keyboard.is_key_just_pressed(KeyCode::L) {
+            self.test_friction /= 2.0;
         }
 
         // Admin
@@ -622,23 +584,20 @@ impl GameScene {
         canvas.set_screen_coordinates(Rect::new(0.0, 0.0, screen_size.width, screen_size.height));
         canvas.draw(&state.gui, DrawParam::default());
         
-        // FPS
-        let fps = ctx.time.fps();
-        let fps_display = Text::new(format!("FPS: {fps:.02}"));
-        canvas.draw(
-            &fps_display,
-            DrawParam::from([0.0, 0.0]).color(Color::WHITE),
-        );
+        // Debug UI
+        let mut debug_lines = Text::new(format!("FPS: {:.02}\n", ctx.time.fps()));
 
         if let Some(player) = self.players.get_mut(&self.local_player) {
-            let text = Text::new(format!(
-                "Velocity: {:.02?}  FRICTION: {:0.2}\nAcceleration: {:.02?}  ACCELERATION: {:0.2}\nPosition: {:0.2?}  Max Speed: {:.02}",
-                player.velocity, player.test_friction,
-                player.acceleration, player.test_acceleration,
-                player.position, player.max_speed
-            ));
-            canvas.draw(&text, DrawParam::from([0.0, 14.0]).color(Color::WHITE));
+            debug_lines.add(format!("Velocity: {:.02?}  FRICTION: {:0.2}\n", player.velocity, self.test_friction));
+            debug_lines.add(format!("Acceleration: {:.02?}  ACCELERATION: {:0.2}\n", self.acceleration, self.test_acceleration));
+            debug_lines.add(format!("Position: {:0.2?}  Max Speed: {:.02}\n", player.position, player.max_speed));
+            debug_lines.add(format!("Predictions: {}", self.inputs.len()));
         }
+
+        canvas.draw(
+            &debug_lines,
+            DrawParam::from([0.0, 0.0]).color(Color::WHITE),
+        );
 
         canvas.finish(ctx)
     }
@@ -648,6 +607,12 @@ impl GameScene {
             self.network.transport.disconnect()
         }
         Ok(())
+    }
+
+    fn maintain(&mut self, _ctx: &mut Context, _state: &mut GameState) {
+        if let Err(e) = self.network.transport.send_packets(&mut self.network.client) {
+            panic!("Error sending packets: {e}");
+        }
     }
 
     fn screen_to_world(&self, ctx: &Context, point: screen::Point2D) -> world::Point2D {
@@ -663,6 +628,7 @@ impl GameScene {
         // point / screen_size * camera_size + camera_position
     }
 
+    #[allow(dead_code)]
     fn world_to_screen(&self, ctx: &Context, point: world::Point2D) -> screen::Point2D {
         use euclid::Transform2D;
         

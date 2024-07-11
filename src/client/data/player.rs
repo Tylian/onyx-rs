@@ -1,5 +1,5 @@
 use onyx::{
-    network::{Direction, Entity, Player as NetworkPlayer, PlayerFlags}, ACCELERATION, FRICTION, RUN_SPEED, SPRITE_SIZE, TILE_SIZE
+    network::{Direction, Entity, Interpolation, MapId, Player as NetworkPlayer, PlayerFlags, State}, RUN_SPEED, SPRITE_SIZE, TILE_SIZE
 };
 
 use onyx::math::units::world::*;
@@ -8,6 +8,7 @@ use ggez::{glam::*, graphics::{Canvas, Color, DrawParam, PxScale, Text, TextAlig
 
 use crate::{utils::{ping_pong, OutlinedText}, AssetCache};
 
+#[derive(Debug, Clone, Copy)]
 pub enum Animation {
     Standing,
     Moving {
@@ -39,28 +40,23 @@ impl Animation {
     }
 }
 
-pub struct Interpolation {
-    pub initial: Point2D,
-    pub target: Point2D,
-    pub start_time: f32,
-    pub duration: f32,
-}
-
+#[derive(Debug)]
 pub struct Player {
     pub id: Entity,
     pub name: String,
+
     pub position: Point2D,
     pub velocity: Vector2D,
-    pub acceleration: Vector2D,
-    pub test_acceleration: f32,
-    pub test_friction: f32,
+    pub direction: Direction,
+    pub map: MapId,
     pub max_speed: f32, // todo: eulcid::Scale?
+
     pub interpolation: Option<Interpolation>,
-    pub last_update: f32,
     pub animation: Animation,
     pub sprite: u32,
-    pub direction: Direction,
+
     pub flags: PlayerFlags,
+    pub last_sequence_id: u64,
 }
 
 impl Player {
@@ -68,6 +64,7 @@ impl Player {
         let velocity = Vector2D::from(data.velocity);
         Self {
             id,
+            map: data.map,
             name: data.name,
             position: data.position,
             interpolation: None,
@@ -80,14 +77,34 @@ impl Player {
                 Animation::Standing
             },
             velocity,
-            acceleration: Vector2D::zero(),
-            test_acceleration: ACCELERATION,
-            test_friction: FRICTION,
             max_speed: RUN_SPEED,
             sprite: data.sprite,
             direction: data.direction,
-            last_update: time,
             flags: data.flags,
+            last_sequence_id: 0,
+        }
+    }
+
+    pub fn update_state(&mut self, state: State) {
+        self.position = state.position;
+        self.velocity = state.velocity;
+        self.max_speed = state.max_speed;
+        self.last_sequence_id = state.last_sequence_id;
+        self.direction = state.direction;
+        self.map = state.map;
+
+        self.direction = Direction::from_velocity(state.velocity).unwrap_or(self.direction);
+    }
+
+    pub fn state(&self) -> State {
+        State {
+            id: self.id,
+            position: self.position,
+            velocity: self.velocity,
+            direction: self.direction,
+            map: self.map,
+            max_speed: self.max_speed,
+            last_sequence_id: self.last_sequence_id
         }
     }
 

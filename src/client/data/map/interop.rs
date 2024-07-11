@@ -1,13 +1,13 @@
 use std::collections::HashMap;
 
-use onyx::{math::units::world::Box2D, network::{Map as NetworkMap, MapLayer, Tile as NetworkTile, Zone as NetworkZone}};
+use onyx::network::{Map as NetworkMap, MapLayer, Tile as NetworkTile};
 use ndarray::Array2;
 use strum::EnumCount;
 use thiserror::Error;
 
 use crate::ensure;
 
-use super::{Map, Tile, Zone};
+use super::{Map, Tile};
 
 #[derive(Debug, Error)]
 pub enum MapError {
@@ -86,28 +86,6 @@ impl From<NetworkTile> for Tile {
             texture: tile.texture,
             autotile: tile.autotile,
             animation: tile.animation,
-        }
-    }
-}
-
-impl From<NetworkZone> for Zone {
-    fn from(other: NetworkZone) -> Self {
-        Self {
-            position: Box2D::from_origin_and_size(
-                other.position,
-                other.size
-            ),
-            data: other.data,
-        }
-    }
-}
-
-impl From<Zone> for NetworkZone {
-    fn from(other: Zone) -> Self {
-        Self {
-            position: other.position.min,
-            size: other.position.size(),
-            data: other.data,
         }
     }
 }

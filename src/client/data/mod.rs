@@ -1,5 +1,5 @@
 mod map;
-mod player;
+pub mod player;
 
 pub use self::map::*;
-pub use self::player::*;
+pub use self::player::Player;

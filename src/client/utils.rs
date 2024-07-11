@@ -52,6 +52,7 @@ impl<'a> OutlinedText<'a> {
             outline_color: Color::new(0.0, 0.0, 0.0, 0.5)
         }
     }
+    #[allow(dead_code)]
     pub fn outline_color(self, color: impl Into<Color>) -> Self {
         Self {
             outline_color: color.into(),

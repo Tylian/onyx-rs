@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::math::units::world::*;
 
-use super::{ChatChannel, Map, MapId};
+use super::{ChatChannel, Input, Map, MapId};
 
 /// Packets sent from the client to the server
 #[derive(Clone, Serialize, Deserialize, PartialEq, Debug)]
@@ -16,10 +16,7 @@ pub enum Packet {
         username: String,
         password: String,
     },
-    Move {
-        position: Point2D,
-        velocity: Vector2D,
-    },
+    Input(Input),
     ChatMessage(ChatChannel, String),
     RequestMap,
     SaveMap(Box<Map>),

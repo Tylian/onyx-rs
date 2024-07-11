@@ -97,7 +97,17 @@ impl EventHandler for GameHandler {
         Ok(())
     }
 
-    fn mouse_wheel_event(&mut self, ctx: &mut Context, x: f32, y: f32) -> GameResult {
+    fn mouse_wheel_event(&mut self, ctx: &mut Context, mut x: f32, mut y: f32) -> GameResult {
+        // ggez has a bug where it reports lines and pixels using the same x,y, without scaling the line amount
+        // Try to detect it here, and scale it ourselves
+        if x.abs() > 0.0 && x.abs() <= 2.0 {
+            x *= 16.0;
+        }
+
+        if y.abs() > 0.0 && y.abs() <= 2.0 {
+            y *= 16.0;
+        }
+
         self.state.gui.input.mouse_wheel_event(x, y, ctx.keyboard.active_mods());
         Ok(())
     }

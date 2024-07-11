@@ -40,9 +40,7 @@ impl Network {
             client_ids: HashSet::new(),
         }
     }
-}
 
-impl Network {
     // pub fn network(&self) -> &NetworkController {
     //     self.handler.as_ref().unwrap().network()
     // }

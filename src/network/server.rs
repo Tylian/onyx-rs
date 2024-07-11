@@ -1,21 +1,17 @@
 use std::{collections::HashMap, fmt::Display};
 use serde::{Deserialize, Serialize};
 
-use crate::math::units::world::*;
 use crate::network::{ChatChannel, Entity, Map, MapSettings, Player, PlayerFlags, MapId};
+
+use super::State;
 
 /// Packets sent from the server to the client
 #[derive(Clone, Serialize, Deserialize, PartialEq, Debug)]
 pub enum Packet {
     JoinGame(Entity),
     FailedJoin(FailJoinReason),
-    PlayerData(Entity, Player),
-    RemoveData(Entity),
-    PlayerMove {
-        entity: Entity,
-        position: Point2D,
-        velocity: Vector2D,
-    },
+    PlayerData(Entity, Option<Player>),
+    PlayerState(Entity, State),
     ChatLog(ChatChannel, String),
     ChangeMap(MapId, u64),
     MapData(Box<Map>),

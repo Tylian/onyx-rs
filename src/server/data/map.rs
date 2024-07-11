@@ -84,8 +84,14 @@ impl Map {
         Ok(())
     }
 
-    pub fn to_box2d(&self) -> world::Box2D {
-        world::Box2D::from_size(self.size.to_f32().cast_unit() * TILE_SIZE)
+    pub fn world_size(&self) -> world::Size2D {
+        (self.size.to_f32() * TILE_SIZE).cast_unit()
+    }
+
+    pub fn valid(&self, pos: Point2D) -> bool {
+        Box2D::from_size(self.size).contains(pos)
+
+        // pos.x >= 0 && pos.x < self.width as u32 && pos.y >= 0 && pos.y < self.height as u32
     }
 }
 

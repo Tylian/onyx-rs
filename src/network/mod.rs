@@ -6,7 +6,7 @@ use ndarray::Array2;
 use serde::{Deserialize, Serialize};
 use strum::{EnumCount, EnumIter, IntoEnumIterator};
 
-use crate::math::units::{map, world::*};
+use crate::{math::units::{map, world::{self, *}}, LERP_DURATION, RUN_SPEED, WALK_SPEED};
 
 pub mod client;
 pub mod server;
@@ -131,6 +131,7 @@ pub struct Player {
     pub name: String,
     pub position: Point2D,
     pub velocity: Vector2D,
+    pub map: MapId,
     pub sprite: u32,
     pub direction: Direction,
     pub flags: PlayerFlags,
@@ -292,7 +293,81 @@ impl ZoneData {
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Debug)]
 pub struct Zone {
-    pub position: Point2D,
-    pub size: Size2D,
+    pub position: world::Box2D,
     pub data: ZoneData,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct Interpolation {
+    pub source: State,
+    pub target: State,
+    pub start: f32,
+}
+
+impl Interpolation {
+    pub fn lerp(&self, time: f32) -> State {
+        let progress = f32::clamp((time - self.start) / LERP_DURATION, 0.0, 1.0);
+        self.source.lerp(&self.target, progress)
+    }
+}
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq)]
+pub struct State {
+    pub id: Entity,
+    pub position: Point2D,
+    pub velocity: Vector2D,
+    pub direction: Direction,
+    pub map: MapId,
+    pub max_speed: f32, 
+    pub last_sequence_id: u64,
+}
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq)]
+pub struct Input {
+    pub acceleration: Vector2D,
+    pub running: bool,
+    pub sequence_id: u64,
+    pub dt: f32,
+}
+
+impl State {
+    pub fn from_input(&self, input: Input, test_friction: f32) -> State {
+        let mut next = *self;
+        next.apply_input(input, test_friction);
+        next
+    }
+
+    pub fn apply_input(&mut self, input: Input, test_friction: f32) {
+        self.max_speed = if input.running { RUN_SPEED } else { WALK_SPEED };
+
+        let velocity = (self.velocity + input.acceleration).clamp_length(0.0, self.max_speed);
+        let friction_force = velocity.try_normalize().unwrap_or_default() * test_friction * input.dt;
+
+        self.velocity = if friction_force.square_length() <= velocity.square_length() {
+            velocity - friction_force
+        } else {
+            Vector2D::zero()
+        };
+
+        if self.velocity.square_length() >= f32::EPSILON * f32::EPSILON {
+            self.position += self.velocity * input.dt;
+        }
+
+        self.last_sequence_id = input.sequence_id;
+    }
+
+    pub fn lerp(&self, other: &State, t: f32) -> State {
+        let position = self.position.lerp(other.position, t);
+        let velocity = (other.position - self.position) / LERP_DURATION;
+
+        State {
+            id: other.id,
+            position,
+            velocity,
+            direction: Direction::from_velocity(velocity).unwrap_or(Direction::South),
+            map: other.map,
+            max_speed: other.max_speed,
+            last_sequence_id: other.last_sequence_id,
+        }
+    }
 }

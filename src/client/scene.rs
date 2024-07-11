@@ -52,6 +52,7 @@ impl Scene {
     }
 }
 
+#[allow(dead_code)]
 pub enum Transition {
     None,
     Switch(Scene),

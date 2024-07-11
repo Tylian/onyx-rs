@@ -5,9 +5,10 @@ use anyhow::Result;
 use ggez::GameResult;
 use onyx::math::units::map::*;
 use onyx::math::units::world;
+use onyx::network::Zone;
 use onyx::network::{Map as NetworkMap, MapLayer, MapSettings, TileAnimation, ZoneData, MapId};
 use onyx::TILE_SIZE;
-use ggez::graphics::{self, Color, DrawParam, InstanceArray};
+use ggez::graphics::{Color, DrawParam, InstanceArray};
 use ggez::Context;
 use ndarray::{azip, indices, Array2, Zip};
 use ggez::{graphics::Canvas, glam::*};
@@ -234,18 +235,6 @@ pub fn draw_zone(ctx: &mut Context, canvas: &mut Canvas, position: world::Box2D,
   Ok(())
 }
 
-#[derive(Clone, Debug)]
-pub struct Zone {
-    pub position: world::Box2D,
-    pub data: ZoneData,
-}
-
-impl Zone {
-    pub fn draw(&self, ctx: &mut Context, canvas: &mut Canvas) -> GameResult {
-        draw_zone(ctx, canvas, self.position, &self.data)
-    }
-}
-
 #[derive(Clone)]
 pub struct Map {
     pub id: MapId,
@@ -375,7 +364,7 @@ impl Map {
 
     pub fn draw_zones(&self, ctx: &mut Context, canvas: &mut Canvas) -> GameResult {
         for attrib in &self.zones {
-            attrib.draw(ctx, canvas)?
+            draw_zone(ctx, canvas, attrib.position, &attrib.data)?
         }
 
         Ok(())
