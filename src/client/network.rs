@@ -1,45 +1,46 @@
-use std::{net::{SocketAddr, UdpSocket}, time::SystemTime};
+use std::net::SocketAddr;
 
+use message_io::{events::EventReceiver, network::{Endpoint, Transport}, node::{self, NodeHandler, NodeTask, StoredNodeEvent}};
 use onyx::network::client::Packet;
-use renet::{
-    transport::{ClientAuthentication, NetcodeClientTransport}, ConnectionConfig, DefaultChannel, RenetClient
-};
-// use message_io::{
-//     events::EventReceiver,
-//     network::{Endpoint, ToRemoteAddr, Transport},
-//     node::{self, NodeHandler, NodeTask, StoredNodeEvent},
-// };
-
-
-/// Represents an active network connection
+use thiserror::Error;
 pub struct Network {
-    pub client: RenetClient,
-    pub transport: NetcodeClientTransport,
+    pub handler: NodeHandler<()>,
+    pub receiver: EventReceiver<StoredNodeEvent<()>>,
+    pub endpoint: Endpoint,
+    
+    #[allow(dead_code)] // RAII
+    task: NodeTask,
+}
+
+#[derive(Clone, Copy, Debug, Error)]
+pub enum NetworkError {
+    #[error("could not connect")]
+    Connect
 }
 
 impl Network {
-    pub fn connect(server_addr: SocketAddr) -> Self {
-        let client = RenetClient::new(ConnectionConfig::default());
-        
-        let socket = UdpSocket::bind("127.0.0.1:0").unwrap();
-        let current_time = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap();
-        let authentication = ClientAuthentication::Unsecure {
-            server_addr,
-            client_id: 0,
-            user_data: None,
-            protocol_id: 0,
-        };
+    pub fn connect(server_addr: SocketAddr) -> Result<Self, NetworkError> {
+        let (handler, listener) = node::split::<()>();
 
-        let transport = NetcodeClientTransport::new(current_time, authentication, socket).unwrap();
+        let (server, server_addr) = handler.network().connect(Transport::FramedTcp, server_addr).map_err(|_| NetworkError::Connect)?;
+        log::info!("Connected to {}", server_addr);
 
-        Self {
-            client,
-            transport
-        }
+        let (task, receiver) = listener.enqueue();
+
+        Ok(Self {
+            handler,
+            task,
+            receiver,
+            endpoint: server
+        })
+    }
+
+    pub fn stop(&self) {
+        self.handler.stop();
     }
 
     pub fn send(&mut self, message: &Packet) {
         let bytes = rmp_serde::to_vec(message).unwrap();
-        self.client.send_message(DefaultChannel::ReliableUnordered, bytes);
+        self.handler.network().send(self.endpoint, &bytes);
     }
 }

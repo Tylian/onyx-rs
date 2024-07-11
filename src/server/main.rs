@@ -8,6 +8,7 @@ use anyhow::{bail, Context, Result};
 use base64ct::{Base64, Encoding};
 use data::PlayerData;
 use euclid::size2;
+use message_io::{network::Endpoint, node::StoredNetEvent};
 use onyx::{
     network::{
         client::Packet as ClientPacket, server::{FailJoinReason, Packet}, ChatChannel, Direction, Entity, MapId, State, Zone, ZoneData
@@ -18,7 +19,6 @@ use env_logger::WriteStyle;
 use log::LevelFilter;
 use network::Network;
 use rand::prelude::*;
-use renet::{ClientId, DefaultChannel, ServerEvent};
 use sha2::{Digest, Sha256};
 
 use crate::data::{Config, Map, NameCache, Player};
@@ -65,7 +65,7 @@ impl GameServer {
             e.insert(create_map(MapId::default()));
         }
 
-        let network = Network::listen(&config);
+        let network = Network::listen(&config)?;
 
         Ok(Self {
             network,
@@ -116,83 +116,81 @@ impl GameServer {
     }
 
     fn update_network(&mut self) {
-        self.network.server.update(self.dt);
-        self.network.transport.update(self.dt, &mut self.network.server).unwrap();
+        // self.network.server.update(self.dt);
+        // self.network.transport.update(self.dt, &mut self.network.server).unwrap();
 
-        while let Some(event) = self.network.server.get_event() {
-            match event {
-                ServerEvent::ClientConnected { client_id } => {
-                    self.network.client_ids.insert(client_id);
-                    log::info!(
-                        "Client ({}) connected (total clients: {})",
-                        client_id,
-                        self.network.client_ids.len()
-                    );
-                }
-                ServerEvent::ClientDisconnected { client_id, reason } => {
-                    self.network.client_ids.remove(&client_id);
-                    self.handle_disconnect(client_id, reason.to_string());
-                }
-            }
-        }
-
-        for client_id in self.network.server.clients_id() {
-            while let Some(bytes) = self.network.server.receive_message(client_id, DefaultChannel::ReliableUnordered) {
-                if let Ok(message) = rmp_serde::from_slice(&bytes) {
-                    if let Err(e) = self.handle_message(client_id, message) {
-                        self.network.server.disconnect(client_id);
-                        log::warn!(
-                            "Disconnecting client ({}), message handler returned an error: {e}",
-                            client_id,
-                        );
-                    }
-                }
-            }
-        }
-
-        
-
-        // while let Some(event) = receive.try_receive() {
-        //     match event.network() {
-        //         StoredNetEvent::Connected(_, _) => unreachable!(),
-        //         StoredNetEvent::Accepted(client_id, _listener) => {
-        //             self.client_ids.insert(client_id);
-
+        // while let Some(event) = self.network.server.get_event() {
+        //     match event {
+        //         ServerEvent::ClientConnected { endpoint } => {
+        //             self.network.endpoints.insert(endpoint);
         //             log::info!(
         //                 "Client ({}) connected (total clients: {})",
-        //                 client_id.addr(),
-        //                 self.client_ids.len()
+        //                 endpoint,
+        //                 self.network.endpoints.len()
         //             );
         //         }
-        //         StoredNetEvent::Message(client_id, bytes) => {
-        //             let message = rmp_serde::from_slice(&bytes).unwrap();
-
-        //             if let Err(e) = self.handle_message(client_id, message) {
-        //                 self.client_ids.remove(&client_id);
-        //                 self.handle_disconnect(client_id);
-        //                 log::warn!(
-        //                     "Disconnecting client ({}), message handler returned an error: {e}",
-        //                     client_id.addr(),
-        //                 );
-        //             }
-        //         }
-        //         StoredNetEvent::Disconnected(client_id) => {
-        //             self.client_ids.remove(&client_id);
-        //             self.handle_disconnect(client_id);
+        //         ServerEvent::ClientDisconnected { endpoint, reason } => {
+        //             self.network.endpoints.remove(&endpoint);
+        //             self.handle_disconnect(endpoint, reason.to_string());
         //         }
         //     }
         // }
+
+        // for endpoint in self.network.server.clients_id() {
+        //     while let Some(bytes) = self.network.server.receive_message(endpoint, DefaultChannel::ReliableUnordered) {
+        //         if let Ok(message) = rmp_serde::from_slice(&bytes) {
+        //             if let Err(e) = self.handle_message(endpoint, message) {
+        //                 self.network.server.disconnect(endpoint);
+        //                 log::warn!(
+        //                     "Disconnecting client ({}), message handler returned an error: {e}",
+        //                     endpoint,
+        //                 );
+        //             }
+        //         }
+        //     }
+        // }
+
+        while let Some(event) = self.network.receiver.try_receive() {
+            match event.network() {
+                StoredNetEvent::Connected(_, _) => unreachable!(),
+                StoredNetEvent::Accepted(endpoint, _listener) => {
+                    self.network.endpoints.insert(endpoint);
+
+                    log::info!(
+                        "Client ({}) connected (total clients: {})",
+                        endpoint.addr(),
+                        self.network.endpoints.len()
+                    );
+                }
+                StoredNetEvent::Message(endpoint, bytes) => {
+                    let message = rmp_serde::from_slice(&bytes).unwrap();
+
+                    if let Err(e) = self.handle_message(endpoint, message) {
+                        self.network.endpoints.remove(&endpoint);
+                        self.handle_disconnect(endpoint, "invalid packet");
+                        log::warn!(
+                            "Disconnecting client ({}), message handler returned an error: {e}",
+                            endpoint.addr(),
+                        );
+                    }
+                }
+                StoredNetEvent::Disconnected(endpoint) => {
+                    self.network.endpoints.remove(&endpoint);
+                    self.handle_disconnect(endpoint, "connection closed");
+                }
+            }
+        }
     }
 
-    fn handle_disconnect(&mut self, client_id: ClientId, reason: String) {
+    fn handle_disconnect(&mut self, endpoint: Endpoint, reason: &str) {
         log::info!(
             "Client ({}) disconnected (total clients: {}): {}",
-            client_id,
-            self.network.client_ids.len(),
+            endpoint,
+            self.network.endpoints.len(),
             reason
         );
 
-        let Some(&entity) = self.network.peer_map.get_by_right(&client_id) else {
+        let Some(&entity) = self.network.peer_map.get_by_right(&endpoint) else {
             return;
         };
 
@@ -207,27 +205,27 @@ impl GameServer {
             PlayerData::from(player).save().unwrap();
         }
 
-        self.network.peer_map.remove_by_right(&client_id);
+        self.network.peer_map.remove_by_right(&endpoint);
     }
 
-    fn handle_message(&mut self, client_id: ClientId, message: ClientPacket) -> Result<()> {
+    fn handle_message(&mut self, endpoint: Endpoint, message: ClientPacket) -> Result<()> {
         use onyx::network::client::Packet::*;
 
         match &message {
-            SaveMap(_) => log::trace!("{}: SaveMap(..)", client_id),
+            SaveMap(_) => log::trace!("{}: SaveMap(..)", endpoint),
             message => {
-                log::trace!("{}: {:?}", client_id, message);
+                log::trace!("{}: {:?}", endpoint, message);
             }
         }
 
-        if let Some(&entity) = self.network.peer_map.get_by_right(&client_id) {
+        if let Some(&entity) = self.network.peer_map.get_by_right(&endpoint) {
             self.handle_game_message(entity, message)
         } else {
-            self.handle_login_message(client_id, message)
+            self.handle_login_message(endpoint, message)
         }
     }
 
-    fn handle_login_message(&mut self, client_id: ClientId, message: ClientPacket) -> Result<()> {
+    fn handle_login_message(&mut self, endpoint: Endpoint, message: ClientPacket) -> Result<()> {
         match message {
             ClientPacket::CreateAccount {
                 username,
@@ -237,11 +235,11 @@ impl GameServer {
                 let mut name_cache = NameCache::load().unwrap();
 
                 if Player::path(&username).exists() {
-                    self.network.send_to(client_id, &Packet::FailedJoin(FailJoinReason::UsernameTaken));
+                    self.network.send_to(endpoint, &Packet::FailedJoin(FailJoinReason::UsernameTaken));
                 }
 
                 if name_cache.contains(&name) {
-                    self.network.send_to(client_id, &Packet::FailedJoin(FailJoinReason::CharacterNameTaken));
+                    self.network.send_to(endpoint, &Packet::FailedJoin(FailJoinReason::CharacterNameTaken));
                 }
 
                 name_cache.insert(name.clone());
@@ -262,15 +260,15 @@ impl GameServer {
 
                 PlayerData::from(player.clone()).save().unwrap();
 
-                self.join_game(client_id, player);
+                self.join_game(endpoint, player);
             }
             ClientPacket::Login { username, password } => {
                 if let Some(player_data) = Self::check_password(&username, &password) {
                     let player = Player::from_data(self.next_entity(), player_data);
-                    self.join_game(client_id, player);
+                    self.join_game(endpoint, player);
                 } else {
                     let incorrect = Packet::FailedJoin(FailJoinReason::LoginIncorrect);
-                    self.network.send_to(client_id, &incorrect);
+                    self.network.send_to(endpoint, &incorrect);
                 }
             }
             _ => {
@@ -514,9 +512,9 @@ impl GameServer {
         Ok(())
     }
 
-    fn join_game(&mut self, client_id: ClientId, mut player: Player) {
+    fn join_game(&mut self, endpoint: Endpoint, mut player: Player) {
         let entity = player.id;
-        self.network.peer_map.insert(player.id, client_id);
+        self.network.peer_map.insert(player.id, endpoint);
 
         // Make sure they're on a valid map, and if they're not move them.
         if !self.maps.contains_key(&player.map) {
@@ -807,7 +805,7 @@ impl GameServer {
     }
 
     pub fn maintain(&mut self) {
-        self.network.transport.send_packets(&mut self.network.server);
+        // self.network.transport.send_packets(&mut self.network.server);
     }
 
     fn next_entity(&mut self) -> Entity {

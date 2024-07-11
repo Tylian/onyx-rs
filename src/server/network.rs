@@ -1,44 +1,73 @@
-use std::{collections::HashSet, net::{SocketAddr, UdpSocket}, time::SystemTime};
+use std::collections::HashSet;
+use std::net::SocketAddr;
 
 use bimap::BiMap;
+use message_io::events::EventReceiver;
+use message_io::node::{self, NodeHandler, NodeTask, StoredNodeEvent};
+use message_io::network::{Endpoint, Transport};
 use onyx::network::{server::Packet, Entity};
-use renet::{Bytes, ClientId, ConnectionConfig, DefaultChannel, RenetServer};
-use renet::transport::{NetcodeServerTransport, ServerAuthentication, ServerConfig};
+use thiserror::Error;
+// use renet::{Bytes, Endpoint, ConnectionConfig, DefaultChannel, RenetServer};
+// use renet::transport::{NetcodeServerTransport, ServerAuthentication, ServerConfig};
 
 use crate::data::Config;
 
 pub struct Network {
-    pub server: RenetServer,
-    pub transport: NetcodeServerTransport,
-    pub peer_map: BiMap<Entity, ClientId>,
-    pub client_ids: HashSet<ClientId>,
+    pub handler: NodeHandler<()>,
+    pub receiver: EventReceiver<StoredNodeEvent<()>>,
+    pub peer_map: BiMap<Entity, Endpoint>,
+    pub endpoints: HashSet<Endpoint>,
+    
+    #[allow(dead_code)] // RAII
+    task: NodeTask,
+}
+
+#[derive(Clone, Copy, Debug, Error)]
+pub enum NetworkError {
+    #[error("could not start listening")]
+    Listen
 }
 
 impl Network {
-    pub fn listen(config: &Config) -> Self {
-        let server = RenetServer::new(ConnectionConfig::default());
+    pub fn listen(config: &Config) -> Result<Self, NetworkError> {
+        let (handler, listener) = node::split::<()>();
 
-        // Setup transport layer
         let server_addr: SocketAddr = config.listen.parse().unwrap();
-        let socket: UdpSocket = UdpSocket::bind(server_addr).unwrap();
-        let server_config = ServerConfig {
-            current_time: SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap(),
-            max_clients: 64,
-            protocol_id: 0,
-            public_addresses: vec![server_addr],
-            authentication: ServerAuthentication::Unsecure
-        };
-
-        let transport = NetcodeServerTransport::new(server_config, socket).unwrap();
+        handler.network().listen(Transport::FramedTcp, server_addr).map_err(|_| NetworkError::Listen)?;
 
         log::info!("Listening on {}", server_addr);
 
-        Self {
-            server,
-            transport,
+        let (task, receiver) = listener.enqueue();
+
+        Ok(Self {
+            handler,
+            task,
+            receiver,
             peer_map: BiMap::new(),
-            client_ids: HashSet::new(),
-        }
+            endpoints: HashSet::new(),
+        })
+
+        // let server = RenetServer::new(ConnectionConfig::default());
+
+        // // Setup transport layer
+        // 
+        // let socket: UdpSocket = UdpSocket::bind(server_addr).unwrap();
+        // let server_config = ServerConfig {
+        //     current_time: SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap(),
+        //     max_clients: 64,
+        //     protocol_id: 0,
+        //     public_addresses: vec![server_addr],
+        //     authentication: ServerAuthentication::Unsecure
+        // };
+
+        // let transport = NetcodeServerTransport::new(server_config, socket).unwrap();
+
+        // Self {
+        //     server,
+        //     transport,
+        //     peer_map: BiMap::new(),
+        //     endpoints: HashSet::new(),
+        // }
     }
 
     // pub fn network(&self) -> &NetworkController {
@@ -47,47 +76,51 @@ impl Network {
 
     // #[inline]
     // fn send_bytes(&mut self, entity: Entity, bytes: Bytes) {
-    //     if let Some(client_id) = self.peer_map.get_by_left(&entity) {
-    //         self.server.send_message(*client_id, DefaultChannel::ReliableUnordered, bytes);
+    //     if let Some(endpoint) = self.peer_map.get_by_left(&entity) {
+    //         self.server.send_message(*endpoint, DefaultChannel::ReliableUnordered, bytes);
     //     }
     // }
 
-    pub fn send_to(&mut self, client_id: ClientId, message: &Packet) {
+    pub fn stop(&self) {
+        self.handler.stop();
+    }
+
+    pub fn send_to(&mut self, endpoint: Endpoint, message: &Packet) {
         let bytes = rmp_serde::to_vec(&message).unwrap();
-        self.server.send_message(client_id, DefaultChannel::ReliableUnordered, bytes);
+        self.handler.network().send(endpoint, &bytes);
     }
 
     pub fn send(&mut self, entity: Entity, message: &Packet) {
-        if let Some(client_id) = self.peer_map.get_by_left(&entity) {
+        if let Some(&endpoint) = self.peer_map.get_by_left(&entity) {
             let bytes = rmp_serde::to_vec(&message).unwrap();
-            self.server.send_message(*client_id, DefaultChannel::ReliableUnordered, bytes);
+            self.handler.network().send(endpoint, &bytes);
         }
     }
 
     pub fn send_list(&mut self, entity_list: &[Entity], message: &Packet) {
-        let bytes = Bytes::from(rmp_serde::to_vec(&message).unwrap());
+        let bytes = rmp_serde::to_vec(&message).unwrap();
         for entity in entity_list {
-            if let Some(client_id) = self.peer_map.get_by_left(entity) {
-                self.server.send_message(*client_id, DefaultChannel::ReliableUnordered, bytes.clone());
+            if let Some(&endpoint) = self.peer_map.get_by_left(entity) {
+                self.handler.network().send(endpoint, &bytes);
             }
         }
     }
 
     pub fn broadcast(&mut self, message: &Packet) {
-        let bytes = Bytes::from(rmp_serde::to_vec(&message).unwrap());
-        for &client_id in self.peer_map.right_values() {
-            self.server.send_message(client_id, DefaultChannel::ReliableUnordered, bytes.clone());
+        let bytes = rmp_serde::to_vec(&message).unwrap();
+        for &endpoint in self.peer_map.right_values() {
+            self.handler.network().send(endpoint, &bytes);
         }
     }
 
     pub fn broadcast_except(&mut self, exclude: Entity, message: &Packet) {
-        let bytes: Bytes = Bytes::from(rmp_serde::to_vec(&message).unwrap());
-        for (&entity, &client_id) in &self.peer_map {
+        let bytes = rmp_serde::to_vec(&message).unwrap();
+        for (&entity, &endpoint) in &self.peer_map {
             if entity == exclude {
                 continue;
             }
             
-            self.server.send_message(client_id, DefaultChannel::ReliableUnordered, bytes.clone());
+            self.handler.network().send(endpoint, &bytes);
         }
     }
 }

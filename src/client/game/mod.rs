@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use euclid::size2;
+use message_io::node::StoredNetEvent;
 use onyx::network::{Input, Interpolation, State, Zone};
 use onyx::{ACCELERATION, FRICTION, SPRITE_SIZE, TILE_SIZE};
 use onyx::math::units::{map, screen, world::{self, *}};
@@ -9,7 +10,6 @@ use ggegui::egui::{Id, LayerId, Order};
 use ggez::{
     event::MouseButton, input::keyboard::{KeyCode, KeyMods}, Context, GameResult
 };
-use renet::DefaultChannel;
 
 use crate::{
     data::{draw_zone, Map, Player}, network::Network, scene::Transition, GameEvent, GameState
@@ -87,20 +87,16 @@ impl GameScene {
     }
 
     fn update_network(&mut self, ctx: &mut Context) {
-        let delta = ctx.time.delta();
-
-        self.network.client.update(delta);
-        self.network.transport.update(delta, &mut self.network.client).unwrap();
-
-        if let Some(e) = self.network.client.disconnect_reason() {
-            panic!("Disconnected: {e}");
-        }
-
-        while let Some(bytes) = self.network.client.receive_message(DefaultChannel::ReliableUnordered) {
-            match rmp_serde::from_slice(&bytes) {
-                Ok(message) => self.handle_message(message, ctx),
-                Err(e) => log::error!("Error parsing packet {:?}", e),
-            };
+        while let Some(event) = self.network.receiver.try_receive() {
+            match event.network() {
+                StoredNetEvent::Connected(_, _) => {},
+                StoredNetEvent::Accepted(_, _) => unreachable!(),
+                StoredNetEvent::Message(_, bytes) => match rmp_serde::from_slice(&bytes) {
+                    Ok(message) => self.handle_message(message, ctx),
+                    Err(e) => log::error!("Error parsing packet {:?}", e),
+                },
+                StoredNetEvent::Disconnected(_) => panic!("disconnected"),
+            }
         }
 
         // const UPDATE_DELAY: f32 = 1.0 / 20.0; // update time in hz
@@ -604,15 +600,13 @@ impl GameScene {
 
     pub fn event(&mut self, _ctx: &mut ggez::Context, _state: &mut GameState, event: GameEvent) -> GameResult {
         if event == GameEvent::Quit {
-            self.network.transport.disconnect()
+            self.network.stop();
         }
         Ok(())
     }
 
     fn maintain(&mut self, _ctx: &mut Context, _state: &mut GameState) {
-        if let Err(e) = self.network.transport.send_packets(&mut self.network.client) {
-            panic!("Error sending packets: {e}");
-        }
+       
     }
 
     fn screen_to_world(&self, ctx: &Context, point: screen::Point2D) -> world::Point2D {

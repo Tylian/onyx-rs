@@ -1,8 +1,8 @@
 use std::{net::SocketAddr, path::PathBuf};
 
+use message_io::node::StoredNetEvent;
 use onyx::network::client::Packet;
 use ggez::{Context, GameResult, graphics::{Color, Canvas, DrawParam}};
-use renet::DefaultChannel;
 use serde::{Deserialize, Serialize};
 use ggegui::{egui, GuiContext};
 
@@ -40,9 +40,19 @@ impl TitleScene {
             character_name: String::new(),
             error: None,
 
-            network: Some(Network::connect(server_addr)),
+            network: Some(Network::connect(server_addr).unwrap()),
             settings,
         })
+    }
+
+    pub fn connect(&mut self) {
+        if let Some(network) = self.network.as_ref() {
+            network.stop();
+        }
+
+        self.loading = true;
+        let server_addr: SocketAddr = self.settings.address.parse().unwrap();
+        self.network.replace(Network::connect(server_addr).unwrap());
     }
 
     pub fn ui(&mut self, ctx: &mut GuiContext) {
@@ -201,51 +211,65 @@ impl TitleScene {
         self.ui(&mut gui_ctx);
         state.gui.update(ctx);
 
-        let Some(network) = self.network.as_mut() else {
+        // UwU *notices your network*
+        let Some(mut network) = self.network.take() else {
             self.loading = true;
             return Ok(Transition::None);
         };
 
-        let delta_time = ctx.time.delta();
-        network.client.update(delta_time);
-        network.transport.update(delta_time, &mut network.client).unwrap();
-        
-        self.loading = network.client.is_connecting();
+        let mut should_reconnect = false;
 
-        if network.client.is_connected() {
-            use onyx::network::server::Packet;
-
-            while let Some(bytes) = network.client.receive_message(DefaultChannel::ReliableUnordered) {
-                let message = rmp_serde::from_slice(&bytes).unwrap();
-                log::debug!("{message:?}");
-
-                match message {
-                    Packet::JoinGame(entity) => {
-                        let settings = Settings {
-                            address: self.settings.address.clone(),
-                            username: self.username.clone(),
-                            password: self.save_password.then_some(self.password.clone()),
-                        };
-
-                        if let Err(e) = settings.save() {
-                            println!("Couldn't write settings, just fyi: {:?}", e);
-                        }
-
-                        let network = self.network.take().unwrap();
-                        let next_scene = GameScene::new(entity, network, ctx);
-                        return Ok(Transition::Switch(next_scene.into()));
-                    }
-                    Packet::FailedJoin(reason) => {
-                        self.error = Some(reason.to_string());
+        while let Some(event) = network.receiver.try_receive() {
+            match event.network() {
+                StoredNetEvent::Connected(_, ok) => {
+                    if ok {
                         self.loading = false;
+                        self.error = None;
+                    } else {
+                        self.error = Some(String::from("could not connect"));
+                        should_reconnect = true;
                     }
-                    _ => unreachable!(),
+                },
+                StoredNetEvent::Accepted(_, _) => unreachable!(),
+                StoredNetEvent::Message(_, bytes) => {
+                    use onyx::network::server::Packet as ServerPacket;
+                    match rmp_serde::from_slice(&bytes).unwrap() {
+                        ServerPacket::JoinGame(entity) => {
+                            let settings = Settings {
+                                address: self.settings.address.clone(),
+                                username: self.username.clone(),
+                                password: self.save_password.then_some(self.password.clone()),
+                            };
+    
+                            if let Err(e) = settings.save() {
+                                println!("Couldn't write settings, just fyi: {:?}", e);
+                            }
+    
+                            let next_scene = GameScene::new(entity, network, ctx);
+                            return Ok(Transition::Switch(next_scene.into()));
+                        }
+                        ServerPacket::FailedJoin(reason) => {
+                            self.error = Some(reason.to_string());
+                            self.loading = false;
+                        }
+                        _ => unreachable!(),
+                    }
                 }
+                StoredNetEvent::Disconnected(_) => {
+                    self.error = Some(String::from("disconnected"));
+                    should_reconnect = true;
+                },
             }
         }
-
-        network.transport.send_packets(&mut network.client).unwrap();
-
+        
+        if should_reconnect {
+            network.stop();
+            self.connect();
+        } else {
+            // owo *gently places network back*
+            self.network.replace(network);
+        }
+        
         // if let Some(event) = network.try_receive() {
         //     use common::network::server::Packet;
 
@@ -304,7 +328,7 @@ impl TitleScene {
     pub fn event(&mut self, _ctx: &mut ggez::Context, _state: &mut GameState, event: GameEvent) -> GameResult {
         if event == GameEvent::Quit {
             if let Some(network) = self.network.as_mut() {
-                network.transport.disconnect();
+                network.stop();
             }
         }
         Ok(())

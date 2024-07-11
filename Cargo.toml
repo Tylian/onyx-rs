@@ -32,7 +32,8 @@ mint = { version = "0.5.9", features = ["serde"] }
 ndarray = { version = "0.15.4", features = ["serde"] }
 
 # networking
-renet = "0.0.15"
+# renet = "0.0.15"
+message-io = { version = "0.18.2", default-features = false, features = ["tcp"] }
 
 # serde
 serde = "1.0.137"
