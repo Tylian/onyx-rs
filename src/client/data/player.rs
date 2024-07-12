@@ -28,26 +28,29 @@ pub enum Animation {
 }
 
 impl Animation {
+    /// Convenience function to get the current direction
     fn direction(&self) -> Direction {
         match self {
             Self::Standing { direction, ..} | Self::Moving { direction, .. } => *direction
         }
     }
 
-    pub fn new(velocity: Vector2D, time: f32) -> Self {
+    /// Create a new animation based on a velocity and start time
+    pub fn new(velocity: Vector2D, start_time: f32) -> Self {
         let direction = Direction::from_velocity(velocity).unwrap_or(Direction::South);
 
         if velocity.approx_eq(&Vector2D::zero()) {
             Animation::Standing { direction }
         } else {
             Animation::Moving {
-                last_update: time,
+                last_update: start_time,
                 progress: 0.0,
                 direction,
             }
         }
     }
 
+    /// Update an animation based on a movement velocity and the current time
     pub fn update(&mut self, velocity: Vector2D, time: f32) {
         let direction = Direction::from_velocity(velocity).unwrap_or(self.direction());
 
@@ -70,6 +73,7 @@ impl Animation {
         }
     }
 
+    /// Get the correct offset into the spritesheet for the current animation state
     pub fn get_animation_offset(&self) -> Vec2 {
         let offset_y = match self.direction() {
             Direction::South => 0.0,
