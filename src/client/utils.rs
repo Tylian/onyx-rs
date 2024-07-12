@@ -12,6 +12,8 @@ macro_rules! ensure {
     };
 }
 
+/// Given a time between 0.0 and 1.0, and a number of frames, generate which frame to display in a ping-pong animation.
+/// e.g with 4 frames it would animate 1-2-3-4-3-2 linearly. 
 pub fn ping_pong(t: f32, frames: u32) -> u32 {
     let steps = frames * 2 - 2;
     let frame = (steps as f32 * t) as u32;

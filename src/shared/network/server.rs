@@ -11,7 +11,8 @@ use crate::network::{ChatChannel, Entity, Map, MapId, MapSettings, Player, Playe
 pub enum Packet {
     JoinGame(Entity),
     FailedJoin(FailJoinReason),
-    PlayerData(Entity, Option<Player>),
+    PlayerData(Entity, Player),
+    ClearData(Entity),
     PlayerState(Entity, State),
     ChatLog(ChatChannel, String),
     ChangeMap(MapId, u64),

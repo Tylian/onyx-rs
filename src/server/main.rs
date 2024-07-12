@@ -164,7 +164,7 @@ impl GameServer {
         if let Some(player) = self.players.remove(&entity) {
             let players: Vec<_> = self.entities_on_map_except(player.map, entity).collect();
 
-            self.network.send_list(&players, &Packet::PlayerData(entity, None));
+            self.network.send_list(&players, &Packet::ClearData(entity));
 
             let goodbye = Packet::ChatLog(ChatChannel::Server, format!("{} has left the game.", &player.name));
             self.network.broadcast_except(entity, &goodbye);
@@ -408,7 +408,7 @@ impl GameServer {
                 };
 
                 let player = &self.players[&other_entity];
-                let packet = Packet::PlayerData(other_entity, Some(player.clone().into()));
+                let packet = Packet::PlayerData(other_entity, player.clone().into());
                 let entities = self.entities_on_map(player.map).collect::<Vec<_>>();
                 self.network.send_list(&entities, &packet);
 
@@ -458,7 +458,7 @@ impl GameServer {
     }
 
     fn join_game(&mut self, endpoint: Endpoint, mut player: Player) {
-        let entity = player.id;
+        let player_entity = player.id;
         self.network.peer_map.insert(player.id, endpoint);
 
         // Make sure they're on a valid map, and if they're not move them.
@@ -468,24 +468,34 @@ impl GameServer {
         }
 
         // Save their data
-        self.players.insert(entity, player.clone());
+        self.players.insert(player_entity, player.clone());
 
         // Send them their ID
-        self.network.send(entity, &Packet::JoinGame(entity));
+        self.network.send(player_entity, &Packet::JoinGame(player_entity));
 
-        let packet = Packet::PlayerData(entity, Some(player.clone().into()));
+        // Send other players their data
+        let packet = Packet::PlayerData(player_entity, player.clone().into());
         let entities: Vec<_> = self.entities_on_map(player.map).collect();
         self.network.send_list(&entities, &packet);
 
+        // Send them other player's data
+        for (entity, other) in self.players.iter()
+            .filter(|(entity, _)| **entity != player_entity)
+            .filter(|(_, other)| other.map == player.map)
+        {
+            let packet = Packet::PlayerData(*entity, other.clone().into());
+            self.network.send_to(endpoint, &packet);
+        }
+
         // Send welcome message
         self.network.send(
-            entity,
+            player_entity,
             &Packet::ChatLog(ChatChannel::Server, "Welcome to Onyx™!".to_owned()),
         );
 
         // Send join message
         self.network.broadcast_except(
-            entity,
+            player_entity,
             &Packet::ChatLog(ChatChannel::Server, format!("{} has joined the game.", &player.name)),
         );
     }
@@ -582,9 +592,22 @@ impl GameServer {
             self.network.send_list(&old_entities, &packet);
             self.network.send_list(&new_entities, &packet);
 
+            // clear data for player on old map
+            //  - done via state update above
+            // send player data to new map
+            // send players on map to player
+
             let player_data = self.players[&state.id].clone();
-            let packet = Packet::PlayerData(state.id, Some(player_data.into()));
-            self.network.send_list(&new_entities, &packet)
+            let packet = Packet::PlayerData(state.id, player_data.into());
+            self.network.send_list(&new_entities, &packet);
+
+            for (entity, other) in self.players.iter()
+                .filter(|(entity, _)| **entity != state.id)
+                .filter(|(_, other)| other.map == state.map)
+            {
+                let packet = Packet::PlayerData(*entity, other.clone().into());
+                self.network.send(state.id, &packet);
+            }
         } else {
             let entities: Vec<_> = self.entities_on_map(state.map).collect();
 

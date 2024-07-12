@@ -62,6 +62,10 @@ impl Direction {
             return None;
         }
 
+        if velocity.x.abs().approx_eq(&velocity.y.abs()) {
+            return None;
+        }
+
         #[allow(clippy::collapsible_else_if)] // visual logic more important
         if velocity.x.abs() > velocity.y.abs() {
             if velocity.x > 0.0 {

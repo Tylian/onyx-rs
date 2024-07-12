@@ -118,11 +118,10 @@ impl GameScene {
         match message {
             JoinGame(_) | FailedJoin(_) => unreachable!(),
             PlayerData(id, player_data) => {
-                if let Some(data) = player_data {
-                    self.players.insert(id, Player::from_network(id, data, time));
-                } else {
-                    self.players.remove(&id);
-                }
+                self.players.insert(id, Player::from_network(id, player_data, time));
+            }
+            ClearData(id) => {
+                self.players.remove(&id);
             }
             PlayerState(id, state) => {
                 self.update_player(id, state, time);
@@ -198,20 +197,19 @@ impl GameScene {
             if self.validate_state(&state, !flags.in_map_editor) {
                 if let Some(player) = self.players.get_mut(&self.local_player) {
                     player.update_state(state);
-                    player.update_animation(time);
                 }
             }
         }
 
         for (entity, player) in &mut self.players {
-            if *entity == self.local_player {
-                continue;
+            if *entity != self.local_player {
+                if let Some(ref interpolation) = player.interpolation {
+                    let state = interpolation.lerp(time);
+                    player.update_state(state);
+                }
             }
-            if let Some(ref interpolation) = player.interpolation {
-                let state = interpolation.lerp(time);
-                player.update_state(state);
-                player.update_animation(time);
-            }
+
+            player.update(time);
         }
     }
 
@@ -559,7 +557,7 @@ impl GameScene {
         players.sort_by(|a, b| a.position.y.partial_cmp(&b.position.y).unwrap());
 
         for player in players {
-            player.draw(&mut canvas, time, &mut state.assets);
+            player.draw(&mut canvas, &mut state.assets);
         }
 
         // Draw 2nd half of map.

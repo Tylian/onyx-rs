@@ -1,3 +1,4 @@
+use euclid::approxeq::ApproxEq;
 use ggez::glam::*;
 use ggez::graphics::{Canvas, Color, DrawParam, PxScale, Text, TextAlign, TextLayout};
 use onyx::math::units::world::*;
@@ -7,20 +8,70 @@ use onyx::{RUN_SPEED, SPRITE_SIZE, TILE_SIZE};
 use crate::utils::{ping_pong, OutlinedText};
 use crate::AssetCache;
 
+const FRAMES_PER_TILE: f32 = 2.0;
+const FRAMES_PER_ANIMATION: u32 = 3;
+
 #[derive(Debug, Clone, Copy)]
 pub enum Animation {
-    Standing,
+    Standing {
+        /// The current direction the animation is facing
+        direction: Direction,
+    },
     Moving {
-        /// Start time of the animation
-        start: f32,
-        /// Movement speed in pixels per second.
-        speed: f32,
+        /// The time the animation was last progressed
+        last_update: f32,
+        /// The progress in the animation, in tiles
+        progress: f32,
+        /// The current direction the animation is facing
+        direction: Direction
     },
 }
 
 impl Animation {
-    fn get_animation_offset(&self, time: f32, direction: Direction) -> Vec2 {
-        let offset_y = match direction {
+    fn direction(&self) -> Direction {
+        match self {
+            Self::Standing { direction, ..} | Self::Moving { direction, .. } => *direction
+        }
+    }
+
+    pub fn new(velocity: Vector2D, time: f32) -> Self {
+        let direction = Direction::from_velocity(velocity).unwrap_or(Direction::South);
+
+        if velocity.approx_eq(&Vector2D::zero()) {
+            Animation::Standing { direction }
+        } else {
+            Animation::Moving {
+                last_update: time,
+                progress: 0.0,
+                direction,
+            }
+        }
+    }
+
+    pub fn update(&mut self, velocity: Vector2D, time: f32) {
+        let direction = Direction::from_velocity(velocity).unwrap_or(self.direction());
+
+        if velocity.approx_eq(&Vector2D::zero()) {
+            *self = Animation::Standing { direction };
+        } else {
+            let speed = velocity.length() / TILE_SIZE;
+            *self = match self {
+                Animation::Standing { .. } => Animation::Moving {
+                    last_update: time,
+                    progress: 0.0,
+                    direction,
+                },
+                Animation::Moving { last_update, progress, .. } => Animation::Moving { 
+                    last_update: time,
+                    progress: *progress + (time - *last_update) * speed,
+                    direction,
+                },
+            }
+        }
+    }
+
+    pub fn get_animation_offset(&self) -> Vec2 {
+        let offset_y = match self.direction() {
             Direction::South => 0.0,
             Direction::West => 1.0,
             Direction::East => 2.0,
@@ -28,10 +79,9 @@ impl Animation {
         };
 
         let offset_x = match self {
-            Animation::Standing => 1.0,
-            Animation::Moving { start, speed } => {
-                let length = 2.0 * TILE_SIZE / speed;
-                ping_pong(((time - start) / length) % 1.0, 3) as f32
+            Self::Standing { .. } => 1.0,
+            Self::Moving { progress, .. } => {
+                ping_pong((progress / FRAMES_PER_TILE).fract(), FRAMES_PER_ANIMATION) as f32
             }
         };
 
@@ -60,22 +110,14 @@ pub struct Player {
 
 impl Player {
     pub fn from_network(id: Entity, data: NetworkPlayer, time: f32) -> Self {
-        let velocity = Vector2D::from(data.velocity);
         Self {
             id,
             map: data.map,
             name: data.name,
             position: data.position,
             interpolation: None,
-            animation: if velocity == Vector2D::zero() {
-                Animation::Moving {
-                    start: time,
-                    speed: velocity.length(),
-                }
-            } else {
-                Animation::Standing
-            },
-            velocity,
+            animation: Animation::new(data.velocity, time),
+            velocity: data.velocity,
             max_speed: RUN_SPEED,
             sprite: data.sprite,
             direction: data.direction,
@@ -107,21 +149,13 @@ impl Player {
         }
     }
 
-    pub fn draw(&self, canvas: &mut Canvas, time: f32, assets: &mut AssetCache) {
+    pub fn draw(&self, canvas: &mut Canvas, assets: &mut AssetCache) {
         self.draw_text(canvas, assets);
-        self.draw_sprite(canvas, assets, time);
+        self.draw_sprite(canvas, assets);
     }
 
-    pub fn update_animation(&mut self, time: f32) {
-        if self.velocity == Vector2D::zero() {
-            self.animation = Animation::Standing;
-        } else {
-            let speed = self.velocity.length();
-            self.animation = match self.animation {
-                Animation::Standing => Animation::Moving { start: time, speed },
-                Animation::Moving { start, .. } => Animation::Moving { start, speed },
-            }
-        }
+    pub fn update(&mut self, time: f32) {
+        self.animation.update(self.velocity, time);
     }
 
     pub fn draw_text(&self, canvas: &mut Canvas, _assets: &mut AssetCache) {
@@ -184,10 +218,10 @@ impl Player {
         // // );
     }
 
-    fn draw_sprite(&self, canvas: &mut Canvas, assets: &mut AssetCache, time: f32) {
+    fn draw_sprite(&self, canvas: &mut Canvas, assets: &mut AssetCache) {
         use ggez::graphics::*;
 
-        let offset = self.animation.get_animation_offset(time, self.direction);
+        let offset = self.animation.get_animation_offset();
 
         let sprite_x = (self.sprite as f32 % 4.0) * 3.0;
         let sprite_y = (self.sprite as f32 / 4.0).floor() * 4.0;
